@@ -7,7 +7,7 @@ from nanovllm.models.qwen3 import Qwen3ForCausalLM, Qwen3Model
 from transformers import AutoConfig
 from nanovllm import LLM, SamplingParams
 import huggingface_hub
-from simple_eval import MathMetric, Response, Instance
+from simple_metric import Response, Instance, MathMetric
 from simple_data import MinervaMath, HamishMathORZ
 from grpo_utils import disable_dropout, masked_mean, log_softmax_and_gather, get_train_ds_config, get_eval_ds_config, gradient_checkpointing_enable
 import deepspeed

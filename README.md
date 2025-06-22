@@ -8,7 +8,7 @@ pip install torch
 pip install -e "nano-vllm/." --link-mode=copy --no-build-isolation
 
 # install math extraction dependency
-pip install sympy
+pip install sympy antlr4-python3-runtime==4.11
 
 # install datasets
 pip install datasets
