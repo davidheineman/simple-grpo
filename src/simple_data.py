@@ -1,4 +1,4 @@
-from simple_eval import Instance
+from simple_metric import Instance
 from datasets import load_dataset
 from math_extract import extract_answer
 

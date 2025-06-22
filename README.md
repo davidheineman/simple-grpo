@@ -1,5 +1,3 @@
-GRPO training in less than 500 lines of Python
-
 ### Setup
 
 ```sh

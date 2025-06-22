@@ -1,21 +1,11 @@
 import logging
 import re
 import signal
+import sympy
+from sympy.parsing.latex import parse_latex
 from typing import Optional
 
 eval_logger = logging.getLogger(__name__)
-
-try:
-    # import antlr4
-    import sympy
-    # from math_verify import parse, verify
-    from sympy.parsing.latex import parse_latex
-
-    # assert version("antlr4-python3-runtime").startswith("4.11")
-except (ModuleNotFoundError, AssertionError) as e:
-    raise type(e)(
-        "`sympy`, `math_verify` and `antlr4-python3-runtime==4.11` are required for grading MATH"
-    ) from e
 
 
 FEW_SHOT = [
@@ -112,16 +102,16 @@ def extract_answer(result: str) -> str:
             boxed_answer = None
 
     all_answers = []
-    
+
     # Try Minerva-style extraction
     minerva_answer = normalize_final_answer(get_unnormalized_answer(result))
     if minerva_answer and minerva_answer != "[invalidanswer]":
         all_answers.append(minerva_answer)
-        
+
     # Add boxed answer if found
     if boxed_answer is not None:
         all_answers.append(normalize_final_answer(boxed_answer))
-        
+
     # Try extracting from dollar signs if no answers yet
     if len(all_answers) == 0:
         dollars = [m.start() for m in re.finditer("\\$", result)]
@@ -129,15 +119,16 @@ def extract_answer(result: str) -> str:
             # Add the answer between the second to last and last dollar sign
             answer = normalize_final_answer(result[dollars[-2] + 1 : dollars[-1]])
             all_answers.append(answer)
-            
+
     # Fall back to full result if no other extraction worked
     if len(all_answers) == 0:
         all_answers.append(normalize_final_answer(result))
-        
+
     return all_answers
 
 
 # string normalization from https://github.com/EleutherAI/lm-evaluation-harness/blob/master/lm_eval/tasks/hendrycks_math.py
+
 
 def hendrycks_is_equiv(str1, str2, verbose=False):
     if str1 is None and str2 is None:
@@ -271,9 +262,6 @@ def get_unnormalized_answer(text: str) -> str:
         return match.group(1).strip()
     else:
         return INVALID_ANSWER
-
-
-
 
 
 def normalize_final_answer(final_answer: str) -> str:
