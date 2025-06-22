@@ -1,5 +1,6 @@
 .venv/*
 .vscode/*
 reference_grpo.py
+nano-vllm/
 nano-vllm/*
 *.pyc
