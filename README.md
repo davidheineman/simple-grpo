@@ -33,10 +33,17 @@ python src/simple_eval.py
 ### More Info
 
 ```sh
-How long would a training run take?
+How long would a training run take on Qwen 3 0.6B?
 
 With 8xA100, assuming 6-7K TPS: 
     -- 1 16-rollout instance per sec (or 1 forward pass every 0.625 sec) 
     -- Minerva pass@1 would take 31.25 sec
     -- 1 epoch on HamishMATH would take 38 hours (56K x 16 samples)
+
+Minimum TODOs:
+    [ ] Beaker launcher
+    [ ] Saving / loading (pre-emptible job)
+    [ ] In-loop Minerva
+    [ ] Wandb support
+    [ ] Multi-GPU support (with Ray)
 ```
