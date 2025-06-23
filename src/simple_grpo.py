@@ -1,5 +1,5 @@
 import torch
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 from typing import List, Optional
 from transformers import get_scheduler, AutoModelForCausalLM
@@ -48,6 +48,12 @@ class TrainConfig:
     beta: float = 0
     num_mini_batches: int = 2
     masked_mean_axis: Optional[int] = None
+
+
+@dataclass
+class Config:
+    train_config: TrainConfig = field(default_factory=TrainConfig)
+    model_config: ModelConfig = field(default_factory=ModelConfig)
 
 
 class Trainer:
