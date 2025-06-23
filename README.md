@@ -41,9 +41,11 @@ With 8xA100, assuming 6-7K TPS:
     -- 1 epoch on HamishMATH would take 38 hours (56K x 16 samples)
 
 Minimum TODOs:
-    [ ] Beaker launcher
+    [ ] Correctness -- Token advantages correct?
+    [ ] Beaker launcher -- https://github.com/allenai/open-instruct/blob/main/mason.py
     [ ] Saving / loading (pre-emptible job)
     [ ] In-loop Minerva
     [ ] Wandb support
+    [ ] Fix stop sequences
     [ ] Multi-GPU support (with Ray)
 ```

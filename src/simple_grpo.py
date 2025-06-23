@@ -38,7 +38,7 @@ class TrainConfig:
     # trainer
     num_epochs: int = 1
     deepspeed_stage: int = 0
-    lr: float = 5e-7
+    lr: float = 5e-6 # 5e-7
     lr_scheduler_type: str = 'constant'
     warm_up_steps: int = 0
     num_scheduler_steps: int = 0
@@ -280,6 +280,8 @@ class Trainer:
                     self.policy.step()
                 local_step += 1
                 with torch.no_grad():
+                    # TODO: We use kl 3, but should also track kl 1
+
                     # NOTE: in packed implementation, kl calculation are averages over response tokens
                     kl_stats[i] = masked_mean(kl, mb_response_masks_bool, self.train_config.masked_mean_axis).float()
                     # kl_loss_stats[i] = kl_stats[i] * self.train_config.beta
@@ -300,6 +302,8 @@ class Trainer:
         #     self.local_metrics.add("val/ratio_var", ratio_stats.var())
         #     self.local_metrics.add("lr", self.scheduler.get_last_lr()[0])
         #     return self.local_metrics.get_metrics_list()
+
+        print(f'kl_avg: {kl_stats.mean()}')
 
         return kl_stats.mean()
 
@@ -428,6 +432,11 @@ class Trainer:
                 else:
                     response_masks[i, prompt_len:] = 1
 
+            # TODO:
+            # In GRPO, if the std of grouped rewards is 0, then there is zero gradient for the batch
+            # of args.num_samples_per_prompt_rollout responses, so we need to filter out those batches
+            # @davidh: All we need to do is remove these as if they were never run
+
             # token-level advantages. TODO: is this right??
             advantages = advantages.unsqueeze(1).expand(-1, rollouts_ids.shape[1]) # (batch, seq_len)
 
@@ -437,6 +446,14 @@ class Trainer:
             all_position_ids.extend(position_ids)
             all_advantages.extend(advantages)
             all_response_masks.extend(response_masks)
+
+        # Calculate average response length
+        response_lengths = []
+        for response_mask in all_response_masks:
+            response_length = response_mask.sum().item()  # Sum of 1s gives response length
+            response_lengths.append(response_length)
+        avg_response_length = sum(response_lengths) / len(response_lengths)
+        print(f'Average response length: {avg_response_length:.1f} tokens')
     
         #####################
 
@@ -453,8 +470,6 @@ class Trainer:
             mb_position_ids.append(all_position_ids[i:batch_end])
             mb_advantages.append(all_advantages[i:batch_end])
             mb_response_masks.append(all_response_masks[i:batch_end])
-
-        # Stack all tensors into single tensors
         mb_rollouts_ids = [torch.stack(batch, dim=0) for batch in mb_rollouts_ids]
         mb_attention_masks = [torch.stack(batch, dim=0) for batch in mb_attention_masks]
         mb_position_ids = [torch.stack(batch, dim=0) for batch in mb_position_ids]
