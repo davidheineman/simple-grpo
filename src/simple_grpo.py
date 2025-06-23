@@ -403,11 +403,11 @@ class Trainer:
             advantages = advantages.unsqueeze(1).expand(-1, rollouts_ids.shape[1]) # (batch, seq_len)
 
             # Collect tensors for batching
-            all_rollouts_ids.append(rollouts_ids)
-            all_attention_masks.append(attention_masks)
-            all_position_ids.append(position_ids)
-            all_advantages.append(advantages)
-            all_response_masks.append(response_masks)
+            all_rollouts_ids.extend(rollouts_ids)
+            all_attention_masks.extend(attention_masks)
+            all_position_ids.extend(position_ids)
+            all_advantages.extend(advantages)
+            all_response_masks.extend(response_masks)
     
         #####################
 
@@ -431,11 +431,12 @@ class Trainer:
     def train(self):
         # dataset = HamishMathORZ()
         dataset = MinervaMath("algebra")
+        instances: List[Instance] = dataset.requests
         
         batch_size = 4
-        for i in range(0, len(dataset.requests), batch_size):
-            batch_end = min(i + batch_size, len(dataset.requests))
-            prompts = dataset.requests[i:batch_end]
+        for i in range(0, len(instances), batch_size):
+            batch_end = min(i + batch_size, len(instances))
+            prompts = instances[i:batch_end]
 
             self.train_step(prompts)
 
