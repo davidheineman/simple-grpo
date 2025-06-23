@@ -2,6 +2,7 @@ import logging
 import re
 import signal
 from typing import Optional
+from importlib.metadata import version
 
 eval_logger = logging.getLogger(__name__)
 
