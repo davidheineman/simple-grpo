@@ -17,6 +17,9 @@ pip install datasets
 sudo apt install libmpich-dev
 pip install deepspeed
 pip install mpi4py
+
+# install misc. deps
+pip install accelerate
 ```
 
 ### Quick Start
@@ -25,4 +28,15 @@ pip install mpi4py
 python src/simple_grpo.py
 
 python src/simple_eval.py
+```
+
+### More Info
+
+```sh
+How long would a training run take?
+
+With 8xA100, assuming 6-7K TPS: 
+    -- 1 16-rollout instance per sec (or 1 forward pass every 0.625 sec) 
+    -- Minerva pass@1 would take 31.25 sec
+    -- 1 epoch on HamishMATH would take 38 hours (56K x 16 samples)
 ```

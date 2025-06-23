@@ -2,17 +2,20 @@ import torch
 from dataclasses import dataclass
 import math
 from typing import List, Optional
-from transformers import get_scheduler
-from nanovllm.models.qwen3 import Qwen3ForCausalLM, Qwen3Model
-from transformers import AutoConfig
+from transformers import get_scheduler, AutoModelForCausalLM
 from nanovllm import LLM, SamplingParams
 import huggingface_hub
 from simple_metric import Response, Instance, MathMetric
 from simple_data import MinervaMath, HamishMathORZ
 from grpo_utils import disable_dropout, masked_mean, log_softmax_and_gather, get_train_ds_config, get_eval_ds_config, gradient_checkpointing_enable
 import deepspeed
+import logging
 
-
+# Banish the deepspeed logger
+for handler in logging.root.handlers[:]:
+    logging.root.removeHandler(handler)
+logging.basicConfig(level=logging.ERROR)
+deepspeed.utils.logging.logger.setLevel(logging.ERROR)
 
 INVALID_LOGPROB = 1.0
 
@@ -25,8 +28,16 @@ class ModelConfig:
 
 @dataclass
 class TrainConfig:
-    # https://wandb.ai/ai2-llm/open_instruct_internal/runs/09uuc5hk/overview
+    """ https://wandb.ai/ai2-llm/open_instruct_internal/runs/09uuc5hk/overview """
+    # generation
+    rollouts_per_prompt: int = 16
+    per_device_train_batch_size: int = 16
+    temperature: float = 0.7
+    max_response_length: int = 2048
+
+    # trainer
     num_epochs: int = 1
+    deepspeed_stage: int = 0
     lr: float = 5e-7
     lr_scheduler_type: str = 'constant'
     warm_up_steps: int = 0
@@ -35,13 +46,8 @@ class TrainConfig:
     clip_lower: float = 0.2
     clip_higher: float = 0.2
     beta: float = 0
+    num_mini_batches: int = 2
     masked_mean_axis: Optional[int] = None
-    rollouts_per_prompt: int = 16
-    per_device_train_batch_size: int = 1
-    temperature: float = 0.7
-    num_mini_batches: int = 1
-    max_response_length: int = 2048 # 256
-    deepspeed_stage: int = 0
 
 
 class Trainer:
@@ -52,7 +58,7 @@ class Trainer:
             model_config.model_name_or_path, 
             enforce_eager=True, 
             tensor_parallel_size=1,
-            gpu_memory_utilization=0.3
+            gpu_memory_utilization=0.5 # 0.3
         )
         torch.set_default_device("cuda") # nano-llm resets default device
         self.sampling_params_train = SamplingParams(
@@ -63,21 +69,29 @@ class Trainer:
             temperature=train_config.temperature, 
             max_tokens=self.train_config.max_response_length
         )
-
-        # torch_dtype=torch.bfloat16,
-        # attn_implementation="flash_attention_2",
-        # use_cache=False,
         
-        hf_config = AutoConfig.from_pretrained(model_config.model_name_or_path)
-        self.policy: torch.nn.Module = Qwen3ForCausalLM(hf_config)
-        self.ref_policy: torch.nn.Module = Qwen3ForCausalLM(hf_config)
+        # @davidh: I would love to use nano-vllm, but it does not have: (1) attention masking or (2) batching
+        self.policy: torch.nn.Module = AutoModelForCausalLM.from_pretrained(
+            model_config.model_name_or_path,
+            revision=model_config.model_revision,
+            torch_dtype=torch.bfloat16,
+            attn_implementation="flash_attention_2",
+            use_cache=False,
+        )
+        self.ref_policy: torch.nn.Module = AutoModelForCausalLM.from_pretrained(
+            model_config.model_name_or_path,
+            revision=model_config.model_revision,
+            torch_dtype=torch.bfloat16,
+            attn_implementation="flash_attention_2",
+            use_cache=False,
+        )
 
         # TODO: Load existing checkpoint if exists
 
         disable_dropout(self.policy)
         disable_dropout(self.ref_policy)
 
-        gradient_checkpointing_enable(self.policy)
+        # gradient_checkpointing_enable(self.policy) TODO: Enable gradient ckpting
 
         optim_params = self.policy.parameters()
 
@@ -123,7 +137,7 @@ class Trainer:
 
     def forward(
         self,
-        model: Qwen3Model,
+        model: AutoModelForCausalLM,
         query_response: torch.LongTensor,
         attention_mask: torch.LongTensor,
         position_ids: torch.LongTensor,
@@ -140,16 +154,20 @@ class Trainer:
             attention_mask=attention_mask[:, :-1].clamp(0, 1),
             positions=position_ids[:, :-1],
         )
-        logits = model.compute_logits(output)
+        logits = output.logits
         logits /= temperature + 1e-7
         logprob = log_softmax_and_gather(logits, input_ids[:, 1:])
         return logprob
     
 
     def broadcast_to_vllm(self):
+        policy_unwrapped = self.policy.module if hasattr(self.policy, "module") else self.policy # unwrap DeepSpeed
+
         # Copy over policy weights to vLLM
-        for name, param in self.policy.named_parameters():
-            self.policy_vllm.model_runner.model.get_parameter(name).data.copy_(param.data)
+        # for name, param in policy_unwrapped.named_parameters():
+        #     self.policy_vllm.model_runner.model.get_parameter(name).data.copy_(param.data)
+        from nanovllm.utils.loader import copy_weights
+        copy_weights(policy_unwrapped, self.policy_vllm.model_runner.model)
 
         # Clear vLLM cache
         for seq in self.policy_vllm.scheduler.running:
@@ -162,9 +180,12 @@ class Trainer:
 
 
     def update_ref_policy(self):
+        policy_unwrapped = self.policy.module if hasattr(self.policy, "module") else self.policy # unwrap DeepSpeed
+        ref_policy_unwrapped = self.ref_policy.module if hasattr(self.ref_policy, "module") else self.ref_policy # unwrap DeepSpeed
+
         # Copy over policy weights to reference policy
-        for name, param in self.policy.named_parameters():
-            self.ref_policy.get_parameter(name).data.copy_(param.data)
+        for name, param in policy_unwrapped.named_parameters():
+            ref_policy_unwrapped.get_parameter(name).data.copy_(param.data)
         torch.cuda.empty_cache()
     
 
@@ -291,7 +312,7 @@ class Trainer:
         )
         rollouts = [out["text"] for out in rollouts]
 
-        # # Generate evaluations
+        # # TODO: Generate evaluations
         # evals = self.policy_vllm.generate(
         #     prompts=eval_prompts, 
         #     sampling_params=self.sampling_params_eval
@@ -338,14 +359,16 @@ class Trainer:
             rollouts_per_prompt=self.train_config.rollouts_per_prompt
         ) # (prompts, rollouts_per_prompt)
 
+        batch_scores = []
         batch_advantages = []
         responses: List[Response]
         for responses in batch_responses:
             # Compute rewards
             scores = self.reward(responses) # (responses,)
-            
+            batch_scores += scores
+
             if torch.all(scores == 0):
-                print("No rewards, skipping...")
+                print("No rewards, skipping train step...")
                 continue
 
             # Compute GRPO
@@ -357,6 +380,8 @@ class Trainer:
             advantages = (scores - mean_group_reward) / (std_group_reward + 1e-8) # standard normalization
             
             batch_advantages += [advantages]
+
+        print(f"Average verifiable reward: {sum(batch_scores) / len(batch_scores)}")
 
         #####################
         # Prepare outputs for forward pass (I wrote all this, not sure if it's correct)
@@ -372,9 +397,15 @@ class Trainer:
 
             padding_side = "left" # for Qwen 3
 
-            # Get tokenizer outputs for all rollouts
+            # First tokenize just the prompts to get their lengths
+            prompt_token_lengths = [
+                len(self.policy_vllm.tokenizer.encode(prompt)) 
+                for prompt in rollout_prompts
+            ]
+
+            # Get tokenizer outputs for prompts + rollouts
             tokenizer_outputs = self.policy_vllm.tokenizer(
-                rollouts,
+                [prompt + rollout for prompt, rollout in zip(rollout_prompts, rollouts)],
                 padding=True,
                 truncation=True,
                 max_length=self.train_config.max_response_length,
@@ -389,13 +420,11 @@ class Trainer:
             
             # Create response masks - 1 for response tokens, 0 for prompt tokens
             response_masks = torch.zeros_like(rollouts_ids)
-            for i, rollout in enumerate(rollouts):
-                prompt_len = len(self.policy_vllm.tokenizer.encode(rollout_prompts[i // self.train_config.rollouts_per_prompt]))
-
+            for i, prompt_len in enumerate(prompt_token_lengths):
                 if padding_side == "left":
-                    # For left padding, response starts from the right
-                    response_start = rollouts_ids.shape[1] - (rollouts_ids[i] != pad_token_id).sum()
-                    response_masks[i, response_start + prompt_len:] = 1
+                    # For left padding, response starts after prompt from the right
+                    response_start = rollouts_ids.shape[1] - (rollouts_ids[i] != pad_token_id).sum() + prompt_len
+                    response_masks[i, response_start:] = 1
                 else:
                     response_masks[i, prompt_len:] = 1
 
@@ -411,31 +440,48 @@ class Trainer:
     
         #####################
 
+        # Split updates into micro-batches
+        mb_rollouts_ids = []
+        mb_attention_masks = []
+        mb_position_ids = []
+        mb_advantages = []
+        mb_response_masks = []
+        for i in range(0, len(all_rollouts_ids), self.train_config.num_mini_batches):
+            batch_end = min(i + self.train_config.num_mini_batches, len(all_rollouts_ids))
+            mb_rollouts_ids.append(all_rollouts_ids[i:batch_end])
+            mb_attention_masks.append(all_attention_masks[i:batch_end])
+            mb_position_ids.append(all_position_ids[i:batch_end])
+            mb_advantages.append(all_advantages[i:batch_end])
+            mb_response_masks.append(all_response_masks[i:batch_end])
 
-        for i in range(0, len(all_rollouts_ids), self.train_config.per_device_train_batch_size):
-            batch_end = min(i + self.train_config.per_device_train_batch_size, len(all_rollouts_ids))
-            self.update_model(
-                all_rollouts_ids[i:batch_end],
-                all_attention_masks[i:batch_end], 
-                all_position_ids[i:batch_end],
-                all_advantages[i:batch_end],
-                all_response_masks[i:batch_end],
-                self.policy_vllm.tokenizer.pad_token_id,
-                self.train_config.temperature,
-                self.train_config.num_mini_batches,
-            )
+        # Stack all tensors into single tensors
+        mb_rollouts_ids = [torch.stack(batch, dim=0) for batch in mb_rollouts_ids]
+        mb_attention_masks = [torch.stack(batch, dim=0) for batch in mb_attention_masks]
+        mb_position_ids = [torch.stack(batch, dim=0) for batch in mb_position_ids]
+        mb_advantages = [torch.stack(batch, dim=0) for batch in mb_advantages]
+        mb_response_masks = [torch.stack(batch, dim=0) for batch in mb_response_masks]
+        
+        self.update_model(
+            mb_rollouts_ids,
+            mb_attention_masks,
+            mb_position_ids,
+            mb_advantages,
+            mb_response_masks,
+            self.policy_vllm.tokenizer.pad_token_id,
+            self.train_config.temperature,
+            self.train_config.num_mini_batches,
+        )
 
         self.broadcast_to_vllm()
 
     
     def train(self):
         # dataset = HamishMathORZ()
-        dataset = MinervaMath("algebra")
+        dataset = MinervaMath("algebra") # TODO: Build an actual dataloader (with shuffling, etc.)
         instances: List[Instance] = dataset.requests
         
-        batch_size = 4
-        for i in range(0, len(instances), batch_size):
-            batch_end = min(i + batch_size, len(instances))
+        for i in range(0, len(instances), self.train_config.per_device_train_batch_size):
+            batch_end = min(i + self.train_config.per_device_train_batch_size, len(instances))
             prompts = instances[i:batch_end]
 
             self.train_step(prompts)
