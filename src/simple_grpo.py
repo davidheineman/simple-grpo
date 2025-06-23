@@ -36,11 +36,11 @@ class TrainConfig:
     clip_higher: float = 0.2
     beta: float = 0
     masked_mean_axis: Optional[int] = None
-    rollouts_per_prompt: int = 16
+    rollouts_per_prompt: int = 4 # 16
     per_device_train_batch_size: int = 1
     temperature: float = 0.7
     num_mini_batches: int = 1
-    max_response_length: int = 2048 # 256
+    max_response_length: int = 512 # 256
     deepspeed_stage: int = 0
 
 
@@ -64,6 +64,7 @@ class Trainer:
             max_tokens=self.train_config.max_response_length
         )
 
+        # TODO: Support these options
         # torch_dtype=torch.bfloat16,
         # attn_implementation="flash_attention_2",
         # use_cache=False,
@@ -121,6 +122,7 @@ class Trainer:
         self.ref_policy.eval()
         self.policy.train()
 
+
     def forward(
         self,
         model: Qwen3Model,
@@ -135,20 +137,27 @@ class Trainer:
         input_ids = torch.masked_fill(query_response, ~padding_mask, 0)
         # NOTE: the [:-1] and [1:] are because the logits and generated tokens are off by 1 in index
         output = model(
-            input_ids=input_ids[:, :-1],
+            input_ids=input_ids[:-1], # @davidh: changed from 2D [:, :-1] # TODO: This only supports batch_size=1 forwards
             # @vwxyzjn: without clamp, we get index out of bounds errors
-            attention_mask=attention_mask[:, :-1].clamp(0, 1),
-            positions=position_ids[:, :-1],
+            attention_mask=attention_mask[:-1].clamp(0, 1),
+            positions=position_ids[:-1],
         )
+        print(output)
+        print(attention_mask[:-1].clamp(0, 1))
+        print(position_ids[:-1])
         logits = model.compute_logits(output)
         logits /= temperature + 1e-7
-        logprob = log_softmax_and_gather(logits, input_ids[:, 1:])
+        logprob = log_softmax_and_gather(logits, input_ids[1:])
+        print(logprob)
+        print('done w forward')
         return logprob
     
 
     def broadcast_to_vllm(self):
+        policy_unwrapped = self.policy.module if hasattr(self.policy, "module") else self.policy # unwrap DeepSpeed
+
         # Copy over policy weights to vLLM
-        for name, param in self.policy.named_parameters():
+        for name, param in policy_unwrapped.named_parameters():
             self.policy_vllm.model_runner.model.get_parameter(name).data.copy_(param.data)
 
         # Clear vLLM cache
@@ -162,9 +171,12 @@ class Trainer:
 
 
     def update_ref_policy(self):
+        policy_unwrapped = self.policy.module if hasattr(self.policy, "module") else self.policy # unwrap DeepSpeed
+        ref_policy_unwrapped = self.ref_policy.module if hasattr(self.ref_policy, "module") else self.ref_policy # unwrap DeepSpeed
+
         # Copy over policy weights to reference policy
-        for name, param in self.policy.named_parameters():
-            self.ref_policy.get_parameter(name).data.copy_(param.data)
+        for name, param in policy_unwrapped.named_parameters():
+            ref_policy_unwrapped.get_parameter(name).data.copy_(param.data)
         torch.cuda.empty_cache()
     
 
@@ -188,15 +200,15 @@ class Trainer:
                 response_mask = response_masks[i]
                 ref_logprob = self.forward(
                     self.ref_policy,
-                    responses[i],
-                    attention_masks[i],
-                    position_ids[i],
+                    responses[i], # [:, i]
+                    attention_masks[i], # [:, i]
+                    position_ids[i], # [:, i]
                     pad_token_id,
                     temperature,
                 )
                 response_mask = response_mask.bool()
                 ref_logprob = torch.masked_fill(
-                    ref_logprob, ~response_mask[:, 1:], INVALID_LOGPROB
+                    ref_logprob, ~response_mask[1:], INVALID_LOGPROB # [:, 1:]
                 )
                 ref_logprobs.append(ref_logprob)
                 torch.cuda.empty_cache()
@@ -214,29 +226,30 @@ class Trainer:
                 mb_ref_logprob = ref_logprobs[i]
                 mb_advantages = advantages[i]
                 mb_response_masks = response_masks[i]
-                mb_response_masks_bool = mb_response_masks[:, 1:].bool()
+                mb_response_masks_bool = mb_response_masks[1:].bool() # [:, 1:]
 
                 mb_new_logprobs = self.forward(
                     self.policy,
-                    responses[i],
-                    attention_masks[i],
-                    position_ids[i],
+                    responses[i], # [:, i]
+                    attention_masks[i], # [:, i]
+                    position_ids[i], # [:, i]
                     pad_token_id,
                     temperature,
                 )
+                print(mb_new_logprobs)
                 mb_new_logprobs = torch.masked_fill(mb_new_logprobs, ~mb_response_masks_bool, INVALID_LOGPROB)
 
                 # Cache the old logprobs
                 with torch.no_grad():
                     if epoch_idx == 0:
-                        old_logprobs[i] = mb_new_logprobs
-                    mb_old_logprobs = old_logprobs[i].detach()
+                        old_logprobs[i] = mb_new_logprobs.detach()
+                    mb_old_logprobs = old_logprobs[i]
 
                 # Calculate the policy's loss
                 logprobs_diff = mb_new_logprobs - mb_old_logprobs
                 ratio = torch.exp(logprobs_diff)
-                pg_losses = -mb_advantages[:, 1:] * ratio
-                pg_losses2 = -mb_advantages[:, 1:] * torch.clamp(
+                pg_losses = -mb_advantages[1:] * ratio # [:, 1]
+                pg_losses2 = -mb_advantages[1:] * torch.clamp( # [:, 1]
                     ratio, 1.0 - self.train_config.clip_lower, 1.0 + self.train_config.clip_higher
                 )
                 pg_loss_max = torch.max(pg_losses, pg_losses2)
@@ -254,6 +267,16 @@ class Trainer:
                     mb_response_masks_bool, self.train_config.masked_mean_axis
                 )
                 loss = loss / accumulation_steps
+
+                print(responses[i])
+                print(attention_masks[i])
+                print(position_ids[i])
+                print(mb_new_logprobs)
+                print(pg_loss_max)
+
+                print("applying loss:")
+                print(loss)
+
                 self.policy.backward(loss)
                 if (local_step + 1) % accumulation_steps == 0:
                     self.policy.step()
@@ -343,7 +366,11 @@ class Trainer:
         for responses in batch_responses:
             # Compute rewards
             scores = self.reward(responses) # (responses,)
+
+            print(responses[0])
+            print(scores)
             
+            # TODO: Is this what actually happens?
             if torch.all(scores == 0):
                 print("No rewards, skipping...")
                 continue
