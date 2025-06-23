@@ -30,6 +30,14 @@ python src/simple_grpo.py
 python src/simple_eval.py
 ```
 
+### Launching on Beaker
+
+```sh
+pip install beaker-py==1.36.2 omegaconf # antlr4-python3-runtime==4.11
+
+python src/beaker/run.py --beaker_config.workspace="ai2/davidh" --beaker_config.cluster="ai2/jupiter-cirrascale-2" --beaker_config.budget="oe-eval" --model_config.model_name_or_path="Qwen/Qwen3-0.6B"
+```
+
 ### More Info
 
 ```sh
