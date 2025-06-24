@@ -30,7 +30,7 @@ python simple_grpo/beaker/launch.py \
 
 # --model_config.model_name_or_path="Qwen/Qwen3-0.6B"
 
-python simple_grpo/beaker/gantry_launch.py \
+python simple_grpo/beaker/launch.py \
     -- python simple_grpo/simple_trainer.py
 ```
 
