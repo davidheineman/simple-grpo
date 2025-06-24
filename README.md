@@ -1,13 +1,6 @@
 ### Setup
 
 ```sh
-# install nano vllm
-git clone https://github.com/davidheineman/nano-vllm
-pip install setuptools --link-mode=copy
-pip install torch
-pip install -e "nano-vllm/." --link-mode=copy --no-build-isolation
-
-# install deepspeed
 sudo apt install libmpich-dev # for deepspeed
 pip install -e '.[all]'
 ```
@@ -52,4 +45,18 @@ Minimum TODOs:
     [ ] Wandb support
     [ ] Fix stop sequences
     [ ] Multi-GPU support (with Ray)
+```
+
+### Local install
+
+```sh
+# install nano vllm
+git clone https://github.com/davidheineman/nano-vllm
+pip install setuptools --link-mode=copy
+pip install torch
+pip install -e "nano-vllm/." --link-mode=copy --no-build-isolation
+
+# install deepspeed
+sudo apt install libmpich-dev # for deepspeed
+pip install -e '.[all]'
 ```
