@@ -227,7 +227,8 @@ def launch_gantry(config: BeakerConfig):
         # new stuff
         # allow_dirty=True,
         dry_run=False,
-        timeout=99999999 # only way to follow the experiment without canceling
+        timeout=99999999, # only way to follow the experiment without canceling
+        install="pip install -e '.[all]'",
     )
 
 
