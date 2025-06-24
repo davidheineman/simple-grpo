@@ -5,9 +5,9 @@ from typing import List, Optional
 from transformers import get_scheduler, AutoModelForCausalLM
 from nanovllm import LLM, SamplingParams
 import huggingface_hub
-from simple_metric import Response, Instance, MathMetric
-from simple_data import MinervaMath, HamishMathORZ
-from grpo_utils import disable_dropout, masked_mean, log_softmax_and_gather, get_train_ds_config, get_eval_ds_config, gradient_checkpointing_enable
+from simple_grpo.simple_metric import Response, Instance, MathMetric
+from simple_grpo.simple_data import MinervaMath, HamishMathORZ
+from simple_grpo.grpo_utils import disable_dropout, masked_mean, log_softmax_and_gather, get_train_ds_config, get_eval_ds_config, gradient_checkpointing_enable
 import deepspeed
 import logging
 

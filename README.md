@@ -7,19 +7,9 @@ pip install setuptools --link-mode=copy
 pip install torch
 pip install -e "nano-vllm/." --link-mode=copy --no-build-isolation
 
-# install math extraction dependency
-pip install sympy antlr4-python3-runtime==4.11
-
-# install datasets
-pip install datasets
-
 # install deepspeed
-sudo apt install libmpich-dev
-pip install deepspeed
-pip install mpi4py
-
-# install misc. deps
-pip install accelerate
+sudo apt install libmpich-dev # for deepspeed
+pip install -e '.[all]'
 ```
 
 ### Quick Start
@@ -33,8 +23,6 @@ python src/simple_eval.py
 ### Launching on Beaker
 
 ```sh
-pip install beaker-py==1.36.2 omegaconf # antlr4-python3-runtime==4.11
-
 python src/beaker/run.py --beaker_config.workspace="ai2/davidh" --beaker_config.cluster="ai2/jupiter-cirrascale-2" --beaker_config.budget="oe-eval" --model_config.model_name_or_path="Qwen/Qwen3-0.6B"
 ```
 
@@ -50,7 +38,7 @@ With 8xA100, assuming 6-7K TPS:
 
 Minimum TODOs:
     [ ] Correctness -- Token advantages correct?
-    [ ] Beaker launcher -- https://github.com/allenai/open-instruct/blob/main/mason.py
+    [ ] Beaker launcher (gantry, not mason) -- https://github.com/allenai/beaker-gantry
     [ ] Saving / loading (pre-emptible job)
     [ ] In-loop Minerva
     [ ] Wandb support

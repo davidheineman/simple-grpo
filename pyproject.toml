@@ -1,0 +1,119 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "simple-grpo"
+dynamic = ["version"]
+requires-python = ">=3.9"
+dependencies = [
+    "datasets",
+    "omegaconf"
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "mypy>=1.0,<1.4",
+    "black>=23.1,<24.0",
+    "isort>=5.12,<5.14",
+]
+beaker = [
+    "beaker-py>=1.36.0,<2.0", 
+    "GitPython>=3.0,<4.0",
+    "beaker-gantry"
+]
+train = [
+    # deepspeed training
+    "deepspeed",
+    "mpi4py",
+
+    # hf training
+    "accelerate",
+
+    # wandb
+    "wandb"
+]
+eval = [
+    # math extraction
+    "sympy",
+    "antlr4-python3-runtime==4.11",
+]
+all = ["simple-grpo[dev,beaker,train,eval]"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["simple_grpo*"]
+exclude = []
+
+[tool.black]
+line-length = 100
+include = '\.pyi?$'
+exclude = '''
+(
+      __pycache__
+    | \.git
+    | \.mypy_cache
+    | \.pytest_cache
+    | \.vscode
+    | \.venv
+    | \bdist\b
+    | \bdoc\b
+    | scratch/
+)
+'''
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+ignore = ["F403", "F405", "E501"]
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".venv",
+    "venv",
+    ".mypy_cache",
+    "__pycache__",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "doc",
+    "pretrain_data",
+    "inference",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F401"]
+
+[tool.pyright]
+reportPrivateImportUsage = false
+
+[tool.mypy]
+ignore_missing_imports = true
+no_site_packages = true
+check_untyped_defs = true
+no_namespace_packages = true
+disable_error_code = "has-type"
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+strict_optional = false

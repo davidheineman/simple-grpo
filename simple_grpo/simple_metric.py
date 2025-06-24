@@ -1,4 +1,4 @@
-from math_extract import extract_answer, is_equiv
+from simple_grpo.math_extract import extract_answer, is_equiv
 from typing import List, Optional
 from dataclasses import dataclass, field
 

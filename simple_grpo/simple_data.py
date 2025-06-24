@@ -1,6 +1,6 @@
-from simple_metric import Instance
 from datasets import load_dataset
-from math_extract import extract_answer
+from simple_grpo.simple_metric import Instance
+from simple_grpo.math_extract import extract_answer
 
 class MinervaMath:
     SUBSETS = [

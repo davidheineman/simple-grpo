@@ -1,6 +1,8 @@
 .venv/*
 .vscode/*
 reference_grpo.py
+dataset_upload.py
 nano-vllm/
 nano-vllm/*
 *.pyc
+*.egg-info
