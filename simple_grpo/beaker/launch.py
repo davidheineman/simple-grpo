@@ -36,7 +36,7 @@ class BeakerConfig:
     max_retries: int = 0
     gpus: int = 0
     num_nodes: int = 1
-    image: str = "ai2/cuda11.8-cudnn8-dev-ubuntu20.04"
+    image: str = "ai2/cuda12.8-dev-ubuntu22.04-torch2.7.0"
     description: str = "davidh training job 🔥🫡"
     task_name: str = "davidh_task"
     priority: str = "normal"
@@ -199,6 +199,11 @@ def launch_gantry(config: BeakerConfig):
     # no_auto_dataset_cache
     # auto_output_dir_path
     # auto_checkpoint_state_dir
+
+    # TODO: put this somewhere better
+    UV_INIT = "deactivate && pip install uv && uv venv && source .venv/bin/activate && "
+    UV_DEPS = "uv pip install torch && sudo apt install -y libmpich-dev && "
+    env_vars += ['LOCAL_RANK=0'] # TODO: deepspeed requires this, but i think its because I didn't initalize the backend correctly
     
     # Launch the experiment
     launch_experiment( # launch_experiment()
@@ -208,7 +213,7 @@ def launch_gantry(config: BeakerConfig):
         clusters=config.cluster,
         budget=config.budget,
 
-        # datasets= # add ability to add this
+        # datasets= # TODO: add ability to add this
 
         name=config.task_name,
         description=config.description,
@@ -229,7 +234,8 @@ def launch_gantry(config: BeakerConfig):
         # dry_run=False,
         timeout=99999999, # only way to follow the experiment without canceling
         # install="pip install -e '.[all]'",
-        install="pip install uv && pip install torch && uv pip install -e '.[all]'"
+        # Gantry doesn't support uv, so this is the workaround
+        install=UV_INIT + UV_DEPS + "uv pip install -e '.[all]'"
     )
 
 

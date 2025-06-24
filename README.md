@@ -15,15 +15,17 @@ python simple_grpo/simple_eval.py
 ### Launching on Beaker
 
 ```sh
+# (current working command)
+python simple_grpo/beaker/launch.py -- python simple_grpo/simple_trainer.py
+
+# Add the prefix before " -- " to launch on remote
 python simple_grpo/beaker/launch.py \
     --workspace="ai2/davidh" \
     --cluster="ai2/jupiter-cirrascale-2" \
-    --budget="oe-eval"
-
-# --model_config.model_name_or_path="Qwen/Qwen3-0.6B"
-
-python simple_grpo/beaker/launch.py \
-    -- python simple_grpo/simple_trainer.py
+    --budget="oe-eval" \
+    -- \
+python simple_grpo/simple_trainer.py \
+    --model_config.model_name_or_path="Qwen/Qwen3-0.6B"
 ```
 
 ### More Info
@@ -37,13 +39,16 @@ With 8xA100, assuming 6-7K TPS:
     -- 1 epoch on HamishMATH would take 38 hours (56K x 16 samples)
 
 Minimum TODOs:
-    [ ] Correctness -- Token advantages correct?
-    [ ] Beaker launcher (gantry, not mason) -- https://github.com/allenai/beaker-gantry
+    [X] Correctness -- Token advantages correct? (yes, they are)
+    [X] Beaker launcher (gantry, not mason) -- https://github.com/allenai/beaker-gantry
     [ ] Saving / loading (pre-emptible job)
     [ ] In-loop Minerva
     [ ] Wandb support
     [ ] Fix stop sequences
     [ ] Multi-GPU support (with Ray)
+
+Nice to haves:
+    [ ] Pull the Gantry install and default container and push a basic container w/ the install command
 ```
 
 ### Local install

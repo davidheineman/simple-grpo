@@ -77,19 +77,19 @@ def get_env_vars(
             [
                 EnvVar(
                     name="HF_HOME",
-                    value="/oe-eval-default/allennlp/.cache/huggingface",
+                    value="/oe-eval-default/davidh/.cache/huggingface",
                 ),
                 EnvVar(
                     name="HF_DATASETS_CACHE",
-                    value="/oe-eval-default/allennlp/.cache/huggingface",
+                    value="/oe-eval-default/davidh/.cache/huggingface",
                 ),
                 EnvVar(
                     name="HF_HUB_CACHE",
-                    value="/oe-eval-default/allennlp/.cache/hub",
+                    value="/oe-eval-default/davidh/.cache/hub",
                 ),
                 EnvVar(
                     name="CHECKPOINT_OUTPUT_DIR",
-                    value=f"/oe-eval-default/allennlp/deletable_checkpoint_states/{global_wandb_id}",
+                    value=f"/oe-eval-default/davidh/deletable_checkpoint_states/{global_wandb_id}",
                 ),
             ]
         )
