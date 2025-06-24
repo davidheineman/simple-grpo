@@ -2,6 +2,7 @@
 .vscode/*
 reference_grpo.py
 dataset_upload.py
+legacy_launch.py
 nano-vllm/
 nano-vllm/*
 *.pyc
