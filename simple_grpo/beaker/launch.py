@@ -229,7 +229,7 @@ def launch_gantry(config: BeakerConfig):
         # dry_run=False,
         timeout=99999999, # only way to follow the experiment without canceling
         # install="pip install -e '.[all]'",
-        install="pip install uv && uv pip install -e '.[all]'"
+        install="pip install uv && pip install torch && uv pip install -e '.[all]'"
     )
 
 
