@@ -1,13 +1,15 @@
 import os
 from typing import Dict, List
-from constants import WEKA_CLUSTERS, GCP_CLUSTERS
-from beaker import EnvVar, DataMount, DataSource
+from simple_grpo.beaker.constants import WEKA_CLUSTERS, GCP_CLUSTERS
+# from beaker import EnvVar, DataMount, DataSource
+from beaker.types import BeakerEnvVar as EnvVar, BeakerDataMount as DataMount, BeakerDataSource as DataSource
 
 USEFUL_SECRETS = [
     "HF_TOKEN",
     "WANDB_API_KEY",
     "BEAKER_TOKEN",
     "OPENAI_API_KEY",
+    "GITHUB_TOKEN",
     # litellm expects these env vars
     "AZURE_API_KEY",
     "AZURE_API_BASE",
@@ -26,6 +28,7 @@ def get_env_vars(
     additional_secrets: List[Dict[str, str]] = None,
     preemptible: bool = True,
 ):
+    env_secrets = []
     env_vars = []
 
     # Add user-specified environment variables
@@ -34,7 +37,7 @@ def get_env_vars(
 
     # Add user-specified secrets
     for secret in additional_secrets:
-        env_vars.append(
+        env_secrets.append(
             EnvVar(
                 name=secret["name"],
                 secret=secret["value"],
@@ -43,14 +46,14 @@ def get_env_vars(
 
     for useful_secret in USEFUL_SECRETS:
         if f"{whoami}_{useful_secret}" in beaker_secrets:
-            env_vars.append(
+            env_secrets.append(
                 EnvVar(
                     name=useful_secret,
                     secret=f"{whoami}_{useful_secret}",
                 )
             )
         elif useful_secret in beaker_secrets:
-            env_vars.append(
+            env_secrets.append(
                 EnvVar(
                     name=useful_secret,
                     secret=useful_secret,
@@ -261,7 +264,7 @@ def get_env_vars(
             ]
         )
 
-    return env_vars
+    return env_vars, env_secrets
 
 
 def get_mounts(beaker_datasets, cluster: List[str]):

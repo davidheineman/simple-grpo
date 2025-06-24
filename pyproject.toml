@@ -8,7 +8,7 @@ dynamic = ["version"]
 requires-python = ">=3.9"
 dependencies = [
     "datasets",
-    "omegaconf"
+    "omegaconf==2.3.0"
 ]
 
 [project.optional-dependencies]
@@ -37,7 +37,7 @@ train = [
 eval = [
     # math extraction
     "sympy",
-    "antlr4-python3-runtime==4.11",
+    # "antlr4-python3-runtime==4.11",
 ]
 all = ["simple-grpo[dev,beaker,train,eval]"]
 

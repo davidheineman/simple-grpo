@@ -9,9 +9,9 @@ import beaker as bk
 from rich.console import Console
 from rich.text import Text
 from rich.pretty import pprint
-from config import make_config
-from defaults import get_env_vars, get_mounts
-from constants import INTERCONNECT_CLUSTERS, WEKA_CLUSTERS, GCP_CLUSTERS
+from simple_grpo.beaker.config import make_config
+from simple_grpo.beaker.defaults import get_env_vars, get_mounts
+from simple_grpo.beaker.constants import INTERCONNECT_CLUSTERS, WEKA_CLUSTERS, GCP_CLUSTERS
 
 
 console = Console()
@@ -114,7 +114,6 @@ def make_task_spec(
     i: int,
     beaker_secrets: str,
     whoami: str,
-    preemptible: bool,
 ):
     global_wandb_id = gen_uuid()
 
@@ -136,6 +135,21 @@ def make_task_spec(
         constraints = bk.Constraints(hostname=config.hostname)
     else:
         constraints = bk.Constraints(cluster=config.cluster)
+
+    env_vars, env_secrets = get_env_vars(
+        config.cluster,
+        beaker_secrets,
+        whoami,
+        global_wandb_id,
+        config.pure_docker_mode,
+        config.num_nodes,
+        config.env,
+        config.secret,
+        config.preemptible,
+    )
+    env_vars = env_vars + env_secrets # combine both!
+
+    mounts = get_mounts(config.beaker_datasets, config.cluster)
     
     spec = bk.TaskSpec(
         name=f"{config.task_name}__{i}",
@@ -143,22 +157,12 @@ def make_task_spec(
         command=["/bin/bash", "-c"],
         arguments=[full_command],
         result=bk.ResultSpec(path="/output"),
-        datasets=get_mounts(config.beaker_datasets, config.cluster),
+        datasets=mounts,
         context=bk.TaskContext(
             priority=bk.Priority(config.priority), preemptible=config.preemptible
         ),
         constraints=constraints,
-        env_vars=get_env_vars(
-            config.cluster,
-            beaker_secrets,
-            whoami,
-            global_wandb_id,
-            config.pure_docker_mode,
-            config.num_nodes,
-            config.env,
-            config.secret,
-            preemptible,
-        ),
+        env_vars=env_vars,
         resources=bk.TaskResources(gpu_count=config.gpus),
         replicas=config.num_nodes,
     )
@@ -237,7 +241,6 @@ def launch(config: BeakerConfig):
                 i,
                 beaker_secrets,
                 whoami,
-                config.preemptible,
             )
             for i, full_command in enumerate(full_commands)
         ],

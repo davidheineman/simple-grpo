@@ -15,15 +15,23 @@ pip install -e '.[all]'
 ### Quick Start
 
 ```sh
-python src/simple_grpo.py
+python simple_grpo/simple_trainer.py
 
-python src/simple_eval.py
+python simple_grpo/simple_eval.py
 ```
 
 ### Launching on Beaker
 
 ```sh
-python src/beaker/run.py --beaker_config.workspace="ai2/davidh" --beaker_config.cluster="ai2/jupiter-cirrascale-2" --beaker_config.budget="oe-eval" --model_config.model_name_or_path="Qwen/Qwen3-0.6B"
+python simple_grpo/beaker/launch.py \
+    --workspace="ai2/davidh" \
+    --cluster="ai2/jupiter-cirrascale-2" \
+    --budget="oe-eval"
+
+# --model_config.model_name_or_path="Qwen/Qwen3-0.6B"
+
+python simple_grpo/beaker/gantry_launch.py \
+    -- python simple_grpo/simple_trainer.py
 ```
 
 ### More Info
