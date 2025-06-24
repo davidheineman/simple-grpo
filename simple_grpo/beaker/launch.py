@@ -233,14 +233,9 @@ def launch_gantry(config: BeakerConfig):
 
 
 def main():
-    # config = make_config(BeakerConfig(
-    #     workspace="ai2/davidh",
-    #     cluster=["ai2/jupiter-cirrascale-2"],
-    #     budget="ai2/oe-eval"
-    # ))
     config = make_config(BeakerConfig(
         workspace="ai2/davidh",
-        cluster=["ai2/jupiter-cirrascale-2"],
+        cluster=WEKA_CLUSTERS,
         budget="ai2/oe-eval",
         gpus=1
     ))
