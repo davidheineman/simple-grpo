@@ -7,11 +7,11 @@ from importlib.metadata import version
 eval_logger = logging.getLogger(__name__)
 
 try:
-    import antlr4
     import sympy
     # from math_verify import parse, verify
     from sympy.parsing.latex import parse_latex
 
+    # import antlr4
     # assert version("antlr4-python3-runtime").startswith("4.11")
 except (ModuleNotFoundError, AssertionError) as e:
     raise type(e)(
@@ -98,7 +98,7 @@ REMOVED_EXPRESSIONS = [
 
 
 def is_equiv(gen, correct):
-    if hendrycks_is_equiv(gen, correct) or minerva_is_equiv(gen, correct):
+    if hendrycks_is_equiv(gen, correct): # or minerva_is_equiv(gen, correct):
         return True
     return False
 

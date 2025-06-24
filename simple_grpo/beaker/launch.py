@@ -242,7 +242,7 @@ def main():
         workspace="ai2/davidh",
         cluster=["ai2/jupiter-cirrascale-2"],
         budget="ai2/oe-eval",
-        # gpus=1
+        gpus=1
     ))
     launch_gantry(config)
 

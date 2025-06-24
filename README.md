@@ -1,7 +1,6 @@
 ### Setup
 
 ```sh
-sudo apt install libmpich-dev # for deepspeed
 pip install -e '.[all]'
 ```
 
