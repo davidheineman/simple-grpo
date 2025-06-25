@@ -49,8 +49,8 @@ for temp in [0, 0.2, 0.7, 1, 1.5, 2]:
 for lr in [1e-5, 5e-5, 1e-6, 5e-6, 1e-7, 5e-7, 1e-8]:
     cmd = LAUNCH_CMD.format(
         checkpoint_save_dir=checkpoint_save_dir + f'lr={lr}/',
-        exp_name=exp_name + f'lr={lr}',
-        run_name=run_name + f'lr={lr}',
+        exp_name=exp_name + f'-lr_{lr}',
+        run_name=run_name + f'-lr_{lr}',
         rollouts_per_prompt=rollouts_per_prompt,
         temperature=0.7,
         lr=lr,
