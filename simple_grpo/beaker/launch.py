@@ -37,7 +37,7 @@ class BeakerConfig:
     gpus: int = 0
     num_nodes: int = 1
     image: str = "ai2/cuda12.8-dev-ubuntu22.04-torch2.7.0"
-    description: str = "davidh training job 🔥🫡"
+    description: str = "davidh training job"
     task_name: str = "davidh_task"
     priority: str = "normal"
     preemptible: bool = True

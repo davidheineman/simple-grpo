@@ -29,12 +29,6 @@ python simple_grpo/simple_trainer.py \
     --model.checkpoint_save_dir="/oe-eval-default/ai2-llm/checkpoints/davidh/simple-grpo/" \
     --wandb.exp_name="first-run" \
     --wandb.run_name="first-run"
-
-### Try these:
-# per_device_train_batch_size
-# temperature
-# lr
-# lr_scheduler_type
 ```
 
 ### More Info
@@ -51,7 +45,7 @@ Minimum TODOs:
     [X] Correctness -- Token advantages correct? (yes, they are)
     [X] Beaker launcher (gantry, not mason) -- https://github.com/allenai/beaker-gantry
     [X] Basic wandb support
-    [ ] Saving / loading (pre-emptible job)
+    [X] Saving / loading (pre-emptible job)
     [ ] In-loop Minerva
     [ ] Fix stop sequences
     [ ] Multi-GPU support (with Ray)

@@ -7,6 +7,7 @@ from transformers import get_scheduler, AutoModelForCausalLM
 from nanovllm import LLM, SamplingParams
 import huggingface_hub
 import wandb
+from simple_grpo.beaker.config import make_config
 from simple_grpo.simple_metric import Response, Instance, MathMetric
 from simple_grpo.simple_data import MinervaMath, HamishMathORZ
 from simple_grpo.grpo_utils import disable_dropout, masked_mean, log_softmax_and_gather, get_train_ds_config, get_eval_ds_config, gradient_checkpointing_enable
@@ -637,20 +638,24 @@ def main():
     # model_name = "Qwen/Qwen3-32B"
     model_path = huggingface_hub.snapshot_download(model_name)
 
-    trainer = Trainer(
-        config = Config(
-            model=ModelConfig(
-                model_name_or_path=model_path,
-                checkpoint_save_dir="/tmp/debug_run"
-            ),
-            train=TrainConfig(),
-            wandb=WandbConfig(
-                wandb_entity="ai2-llm",
-                wandb_project_name="simple-trainer",
-                exp_name="debug_runs",
-                run_name="debug_run",
-            )
+    config = Config(
+        model=ModelConfig(
+            model_name_or_path=model_path,
+            checkpoint_save_dir="/tmp/debug_run"
+        ),
+        train=TrainConfig(),
+        wandb=WandbConfig(
+            wandb_entity="ai2-llm",
+            wandb_project_name="simple-trainer",
+            exp_name="debug_runs",
+            run_name="debug_run",
         )
+    )
+
+    config = make_config(config)
+
+    trainer = Trainer(
+        config
     )
 
     trainer.train()
