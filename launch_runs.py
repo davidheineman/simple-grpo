@@ -8,7 +8,6 @@ python simple_grpo/beaker/launch.py \
     --budget="ai2/oe-eval" \
     -- \
 python simple_grpo/simple_trainer.py \
-    --model.model_name_or_path="Qwen/Qwen3-0.6B" \
     --model.checkpoint_save_dir="{checkpoint_save_dir}" \
     --wandb.exp_name="{exp_name}" \
     --wandb.run_name="{run_name}" \
@@ -32,7 +31,7 @@ for rollouts_per_prompt in [2, 4, 8, 16, 32, 64, 128]:
         lr=5e-6,
         lr_scheduler_type="constant",
     )
-    os.system(cmd)
+    # os.system(cmd)
 
 for temp in [0, 0.2, 0.7, 1, 1.5, 2]:
     cmd = LAUNCH_CMD.format(
@@ -44,7 +43,7 @@ for temp in [0, 0.2, 0.7, 1, 1.5, 2]:
         lr=5e-6,
         lr_scheduler_type="constant",
     )
-    os.system(cmd)
+    # os.system(cmd)
 
 for lr in [1e-5, 5e-5, 1e-6, 5e-6, 1e-7, 5e-7, 1e-8]:
     cmd = LAUNCH_CMD.format(
