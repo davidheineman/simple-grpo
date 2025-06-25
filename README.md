@@ -23,6 +23,7 @@ python simple_grpo/beaker/launch.py \
     --workspace="ai2/davidh" \
     --cluster="[ai2/jupiter-cirrascale-2]" \
     --budget="ai2/oe-eval" \
+    --follow=true \
     -- \
 python simple_grpo/simple_trainer.py \
     --model.model_name_or_path="Qwen/Qwen3-0.6B" \

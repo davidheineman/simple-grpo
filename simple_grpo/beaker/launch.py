@@ -52,6 +52,9 @@ class BeakerConfig:
     secret: List[Dict[str, str]] = field(default_factory=list)  # TODO: Add parser from mason.py
     no_host_networking: bool = False
 
+    # new args
+    follow: bool = False
+
 
 def gen_uuid(length: int = 8) -> str:
     """Random base-36 string of `length` digits."""
@@ -230,7 +233,7 @@ def launch_gantry(config: BeakerConfig):
         # allow_dirty=True,
         dry_run=False,
         weka=weka,
-        timeout=99999999, # only way to follow the experiment without canceling
+        timeout=(99999999 if config.follow else 0), # only way to follow the experiment without canceling
         # install="pip install -e '.[all]'",
         
         install=UV_INIT + UV_DEPS + "uv pip install -e '.[all]'" # Workaournd as Gantry doesn't support uv
