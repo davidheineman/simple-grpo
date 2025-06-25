@@ -17,11 +17,10 @@ from simple_grpo.grpo_utils import (
     disable_dropout,
     get_eval_ds_config,
     get_train_ds_config,
-    gradient_checkpointing_enable,
     log_softmax_and_gather,
     masked_mean,
 )
-from simple_grpo.simple_data import HamishMathORZ, MinervaMath
+from simple_grpo.simple_data import MinervaMath
 from simple_grpo.simple_metric import Instance, MathMetric, Response
 from simple_grpo.utils import (
     calibrate_checkpoint_state_dir,

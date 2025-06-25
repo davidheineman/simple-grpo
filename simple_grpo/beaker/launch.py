@@ -9,16 +9,10 @@ from typing import Dict, List, Optional
 import beaker as bk
 from gantry.api import launch_experiment
 from rich.console import Console
-from rich.pretty import pprint
-from rich.text import Text
 
 from simple_grpo.beaker.config import make_config
-from simple_grpo.beaker.constants import (
-    GCP_CLUSTERS,
-    INTERCONNECT_CLUSTERS,
-    WEKA_CLUSTERS,
-)
-from simple_grpo.beaker.defaults import get_env_vars, get_mounts
+from simple_grpo.beaker.constants import WEKA_CLUSTERS
+from simple_grpo.beaker.defaults import get_env_vars
 
 console = Console()
 
