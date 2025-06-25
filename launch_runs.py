@@ -31,7 +31,7 @@ for rollouts_per_prompt in [2, 4, 8, 16, 32, 64, 128]:
         lr=5e-6,
         lr_scheduler_type="constant",
     )
-    # os.system(cmd)
+    os.system(cmd)
 
 for temp in [0, 0.2, 0.7, 1, 1.5, 2]:
     cmd = LAUNCH_CMD.format(
@@ -43,7 +43,7 @@ for temp in [0, 0.2, 0.7, 1, 1.5, 2]:
         lr=5e-6,
         lr_scheduler_type="constant",
     )
-    # os.system(cmd)
+    os.system(cmd)
 
 for lr in [1e-5, 5e-5, 1e-6, 5e-6, 1e-7, 5e-7, 1e-8]:
     cmd = LAUNCH_CMD.format(

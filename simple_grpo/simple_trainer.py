@@ -634,6 +634,8 @@ class Trainer:
 def main():
     torch.cuda.set_device('cuda:0')
 
+    # TODO: model_name_or_path doesn't load properly. it uses this hf logic
+
     model_name = "Qwen/Qwen3-0.6B"
     # model_name = "Qwen/Qwen3-32B"
     model_path = huggingface_hub.snapshot_download(model_name)

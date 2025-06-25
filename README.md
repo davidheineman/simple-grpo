@@ -48,8 +48,12 @@ Minimum TODOs:
     [X] Basic wandb support
     [X] Saving / loading (pre-emptible job)
     [ ] In-loop Minerva
-    [ ] Fix stop sequences
     [ ] Multi-GPU support (with Ray)
+
+Minimum Bugs:
+    [ ] Fix stop sequences
+    [ ] vLLM breaks when multiple jobs are on the same node -- https://github.com/GeeeekExplorer/nano-vllm/blob/main/nanovllm/engine/model_runner.py#L26
+    [ ] Loading logic broken (model_name_or_path)
 
 Nice to haves:
     [ ] Pull the Gantry install and default container and push a basic container w/ the install command
