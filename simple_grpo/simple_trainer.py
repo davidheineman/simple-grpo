@@ -5,10 +5,12 @@ from typing import List, Optional
 from transformers import get_scheduler, AutoModelForCausalLM
 from nanovllm import LLM, SamplingParams
 import huggingface_hub
+import wandb
 from simple_grpo.simple_metric import Response, Instance, MathMetric
 from simple_grpo.simple_data import MinervaMath, HamishMathORZ
 from simple_grpo.grpo_utils import disable_dropout, masked_mean, log_softmax_and_gather, get_train_ds_config, get_eval_ds_config, gradient_checkpointing_enable
 import deepspeed
+from deepspeed.runtime.pipe.schedule import TrainSchedule
 import logging
 
 # Banish the deepspeed logger
@@ -51,13 +53,54 @@ class TrainConfig:
 
 
 @dataclass
+class WandbConfig:
+    wandb_project_name: str
+    wandb_entity: str
+    run_name: str
+    exp_name: str
+
+
+@dataclass
 class Config:
     train_config: TrainConfig = field(default_factory=TrainConfig)
     model_config: ModelConfig = field(default_factory=ModelConfig)
+    wandb_config: Optional[WandbConfig] = None
+
+
+class WandB:
+    def __init__(self, config: Config):
+        wandb.init(
+            project=config.wandb_config.wandb_project_name,
+            entity=config.wandb_config.wandb_entity,
+            sync_tensorboard=True,
+            config=config,
+            name=config.wandb_config.run_name,
+            save_code=True,
+            tags=[config.wandb_config.exp_name], # TODO: get_wandb_tags()
+        )
+        self.metrics = {}
+
+    def log_table(self, table: dict[str, List[str]]):
+        wandb.log({
+            "sample_completions": wandb.Table(
+                columns=list(table.keys()),
+                data=list(zip(*table.values()))
+            )
+        })
+
+    def log(self, metric: dict[str, object]):
+        self.metrics.update(metric)
+
+    def step(self):
+        wandb.log(self.metrics)
+        self.metrics = {}
 
 
 class Trainer:
-    def __init__(self, model_config: ModelConfig, train_config: TrainConfig):
+    def __init__(self, config: Config):
+        train_config = config.train_config
+        model_config = config.model_config
+
         self.train_config = train_config
 
         self.policy_vllm = LLM(
@@ -119,7 +162,7 @@ class Trainer:
         ds_config["train_micro_batch_size_per_gpu"] = train_config.per_device_train_batch_size
         ds_config["gradient_accumulation_steps"] = 1
 
-        self.policy, self.optimizer, _, self.scheduler = deepspeed.initialize(
+        self.policy, self.optimizer, _, self.scheduler: TrainSchedule = deepspeed.initialize(
             model=self.policy,
             optimizer=self.optimizer,
             config=ds_config,
@@ -140,6 +183,8 @@ class Trainer:
 
         self.ref_policy.eval()
         self.policy.train()
+
+        self.wandb = WandB(config)
 
     def forward(
         self,
@@ -309,7 +354,8 @@ class Trainer:
         #     self.local_metrics.add("lr", self.scheduler.get_last_lr()[0])
         #     return self.local_metrics.get_metrics_list()
 
-        print(f'kl_avg: {kl_stats.mean()}')
+        self.wandb.log({'train/kl_avg': kl_stats.mean()})
+        self.wandb.log({'lr': self.scheduler.get_last_lr()[0]})
 
         return kl_stats.mean()
 
@@ -318,7 +364,8 @@ class Trainer:
         # Generate rollouts
         rollouts = self.policy_vllm.generate(
             prompts=rollout_prompts, 
-            sampling_params=self.sampling_params_train
+            sampling_params=self.sampling_params_train,
+            use_tqdm=False
         )
         rollouts = [out["text"] for out in rollouts]
 
@@ -363,36 +410,7 @@ class Trainer:
         
         return scores
 
-    def train_step(self, batch_prompts: List[Instance]):
-        batch_responses: List[List[Response]] = self.batch_generate(
-            batch_prompts=batch_prompts,
-            rollouts_per_prompt=self.train_config.rollouts_per_prompt
-        ) # (prompts, rollouts_per_prompt)
-
-        batch_scores = []
-        batch_advantages = []
-        responses: List[Response]
-        for responses in batch_responses:
-            # Compute rewards
-            scores = self.reward(responses) # (responses,)
-            batch_scores += scores
-
-            if torch.all(scores == 0):
-                print("No rewards, skipping train step...")
-                continue
-
-            # Compute GRPO
-            scores_per_prompt = scores.reshape(-1, self.train_config.rollouts_per_prompt)
-            mean_group_reward = torch.mean(scores_per_prompt, dim=-1)
-            std_group_reward  = torch.std(scores_per_prompt, dim=-1)
-            mean_group_reward = mean_group_reward.repeat_interleave(self.train_config.rollouts_per_prompt)
-            std_group_reward  = std_group_reward.repeat_interleave(self.train_config.rollouts_per_prompt)
-            advantages = (scores - mean_group_reward) / (std_group_reward + 1e-8) # standard normalization
-            
-            batch_advantages += [advantages]
-
-        print(f"Average verifiable reward: {sum(batch_scores) / len(batch_scores)}")
-
+    def prepare_forward_pass(self, batch_advantages: List[torch.Tensor], batch_responses: List[List[Response]]):
         #####################
         # Prepare outputs for forward pass (I wrote all this, not sure if it's correct)
         #####################
@@ -438,12 +456,7 @@ class Trainer:
                 else:
                     response_masks[i, prompt_len:] = 1
 
-            # TODO:
-            # In GRPO, if the std of grouped rewards is 0, then there is zero gradient for the batch
-            # of args.num_samples_per_prompt_rollout responses, so we need to filter out those batches
-            # @davidh: All we need to do is remove these as if they were never run
-
-            # token-level advantages. TODO: is this right??
+            # token-level advantages
             advantages = advantages.unsqueeze(1).expand(-1, rollouts_ids.shape[1]) # (batch, seq_len)
 
             # Collect tensors for batching
@@ -452,14 +465,6 @@ class Trainer:
             all_position_ids.extend(position_ids)
             all_advantages.extend(advantages)
             all_response_masks.extend(response_masks)
-
-        # Calculate average response length
-        response_lengths = []
-        for response_mask in all_response_masks:
-            response_length = response_mask.sum().item()  # Sum of 1s gives response length
-            response_lengths.append(response_length)
-        avg_response_length = sum(response_lengths) / len(response_lengths)
-        print(f'Average response length: {avg_response_length:.1f} tokens')
     
         #####################
 
@@ -481,7 +486,57 @@ class Trainer:
         mb_position_ids = [torch.stack(batch, dim=0) for batch in mb_position_ids]
         mb_advantages = [torch.stack(batch, dim=0) for batch in mb_advantages]
         mb_response_masks = [torch.stack(batch, dim=0) for batch in mb_response_masks]
+
+        return (
+            mb_rollouts_ids,
+            mb_attention_masks,
+            mb_position_ids,
+            mb_advantages,
+            mb_response_masks,
+        )
+
+
+    def train_step(self, batch_prompts: List[Instance]):
+        # Generate responses
+        batch_responses: List[List[Response]] = self.batch_generate(
+            batch_prompts=batch_prompts,
+            rollouts_per_prompt=self.train_config.rollouts_per_prompt
+        ) # (prompts, rollouts_per_prompt)
+
+        batch_scores = []
+        batch_advantages = []
+        responses: List[Response]
+        for responses in batch_responses:
+            # Compute rewards
+            scores = self.reward(responses) # (responses,)
+            batch_scores += scores
+
+            # Compute GRPO
+            scores_per_prompt = scores.reshape(-1, self.train_config.rollouts_per_prompt)
+            mean_group_reward = torch.mean(scores_per_prompt, dim=-1)
+            std_group_reward  = torch.std(scores_per_prompt, dim=-1)
+            mean_group_reward = mean_group_reward.repeat_interleave(self.train_config.rollouts_per_prompt)
+            std_group_reward  = std_group_reward.repeat_interleave(self.train_config.rollouts_per_prompt)
+            advantages = (scores - mean_group_reward) / (std_group_reward + 1e-8) # standard normalization
+
+            # In GRPO, if the std of grouped rewards is 0, then there is zero gradient for the batch
+            # of args.num_samples_per_prompt_rollout responses, so we need to filter out those batches
+            if std_group_reward == 0:
+                continue
+            
+            batch_advantages += [advantages]
+
+        self.wandb.log({"train/verifiable_correct_rate": sum(batch_scores) / len(batch_scores)})
+        self.wandb.log_table({"sample_completions": batch_responses[0]}) # log first batch of completions # TODO: Get a table of prompt, response, scores, ground_truth
+
+        # Tokenize + get attention mask
+        mb_rollouts_ids, mb_attention_masks, mb_position_ids, \
+            mb_advantages, mb_response_masks = self.prepare_forward_pass(
+            batch_advantages = batch_advantages,
+            batch_responses = batch_responses
+        )
         
+        # Gradient step
         self.update_model(
             mb_rollouts_ids,
             mb_attention_masks,
@@ -494,6 +549,8 @@ class Trainer:
         )
 
         self.broadcast_to_vllm()
+
+        self.wandb.step()
 
     
     def train(self):
@@ -516,10 +573,18 @@ def main():
     model_path = huggingface_hub.snapshot_download(model_name)
 
     trainer = Trainer(
-        model_config=ModelConfig(
-            model_name_or_path=model_path
-        ),
-        train_config=TrainConfig(),
+        config = Config(
+            model_config=ModelConfig(
+                model_name_or_path=model_path
+            ),
+            train_config=TrainConfig(),
+            wandb_config=WandbConfig(
+                wandb_project_name="ai2-llm",
+                wandb_entity="simple-trainer",
+                run_name="debug_runs",
+                exp_name="debug"
+            )
+        )
     )
 
     trainer.train()

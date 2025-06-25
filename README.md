@@ -41,9 +41,9 @@ With 8xA100, assuming 6-7K TPS:
 Minimum TODOs:
     [X] Correctness -- Token advantages correct? (yes, they are)
     [X] Beaker launcher (gantry, not mason) -- https://github.com/allenai/beaker-gantry
+    [X] Basic wandb support
     [ ] Saving / loading (pre-emptible job)
     [ ] In-loop Minerva
-    [ ] Wandb support
     [ ] Fix stop sequences
     [ ] Multi-GPU support (with Ray)
 
