@@ -155,13 +155,8 @@ def launch_gantry(config: BeakerConfig):
 
     beaker_client = bk.Beaker.from_env(default_workspace=config.workspace)
 
-    # print(beaker_client.workspace.secrets())
-    # beaker_secrets = [secret.name for secret in beaker_client.workspace.secrets()]
-    beaker_secrets = []
-
-    # whoami = beaker_client.account.whoami().name
-
-    whoami = 'davidh'
+    beaker_secrets = [secret.name for secret in beaker_client.secret.list(workspace=config.workspace)]
+    whoami = beaker_client.user_name
 
     commands = parse_commands()
 
@@ -184,15 +179,17 @@ def launch_gantry(config: BeakerConfig):
         config.preemptible,
     )
     env_vars = [f"{var.name}={var.value}" for var in env_vars]
-    env_secrets = [f"{var.name}={var.value}" for var in env_secrets]
+    env_secrets = [f"{var.name}={var.secret}" for var in env_secrets]
 
+    # TODO: Move this to constants
+    weka = [
+        "oe-adapt-default:/oe-adapt-default",
+        "oe-training-default:/oe-training-default",
+        "oe-eval-default:/oe-eval-default",
+    ]
+
+    # mounts = None # TODO: fix mounts
     # mounts = get_mounts(config.beaker_datasets, config.cluster)
-    # mounts = [
-    #     "oe-adapt-default:/oe-adapt-default"
-    #     "oe-training-default:/oe-training-default"
-    #     "oe-eval-default:/oe-eval-default"
-    # ]
-    mounts = None # TODO: How to mount weka??
 
     ### TODO: Migrate from legacy launcher ???
     # pure_docker_mode
@@ -222,7 +219,7 @@ def launch_gantry(config: BeakerConfig):
         gpus=config.gpus,
         preemptible=config.preemptible,
         retries=config.max_retries,
-        mounts=mounts, # need to fix
+        # mounts=mounts, # need to fix
         replicas=config.num_nodes,
         host_networking=not config.no_host_networking,
         env_vars=env_vars,
@@ -232,6 +229,7 @@ def launch_gantry(config: BeakerConfig):
         # new stuff
         # allow_dirty=True,
         dry_run=False,
+        weka=weka,
         timeout=99999999, # only way to follow the experiment without canceling
         # install="pip install -e '.[all]'",
         

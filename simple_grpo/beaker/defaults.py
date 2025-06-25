@@ -19,7 +19,7 @@ USEFUL_SECRETS = [
 
 def get_env_vars(
     cluster: List[str],
-    beaker_secrets: List[str],
+    available_secrets: List[str],
     whoami: str,
     global_wandb_id: str,
     pure_docker_mode: bool = False,
@@ -45,14 +45,14 @@ def get_env_vars(
         )
 
     for useful_secret in USEFUL_SECRETS:
-        if f"{whoami}_{useful_secret}" in beaker_secrets:
+        if f"{whoami}_{useful_secret}" in available_secrets:
             env_secrets.append(
                 EnvVar(
                     name=useful_secret,
                     secret=f"{whoami}_{useful_secret}",
                 )
             )
-        elif useful_secret in beaker_secrets:
+        elif useful_secret in available_secrets:
             env_secrets.append(
                 EnvVar(
                     name=useful_secret,
