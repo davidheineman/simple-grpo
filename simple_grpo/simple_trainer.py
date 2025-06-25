@@ -1,3 +1,4 @@
+import os
 import torch
 from dataclasses import dataclass, field
 import math
@@ -9,6 +10,7 @@ import wandb
 from simple_grpo.simple_metric import Response, Instance, MathMetric
 from simple_grpo.simple_data import MinervaMath, HamishMathORZ
 from simple_grpo.grpo_utils import disable_dropout, masked_mean, log_softmax_and_gather, get_train_ds_config, get_eval_ds_config, gradient_checkpointing_enable
+from simple_grpo.utils import calibrate_checkpoint_state_dir, clean_last_n_checkpoints_deepspeed
 import deepspeed
 from deepspeed.runtime.pipe.schedule import TrainSchedule
 import logging
@@ -24,8 +26,13 @@ INVALID_LOGPROB = 1.0
 
 @dataclass
 class ModelConfig:
+    # hf model args
     model_name_or_path: str
     model_revision: Optional[str] = None
+
+    # checkpoint options
+    checkpoint_save_dir: Optional[str] = None
+    keep_last_n_checkpoints: int = 5
 
 
 @dataclass
@@ -54,29 +61,41 @@ class TrainConfig:
 
 @dataclass
 class WandbConfig:
-    wandb_project_name: str
-    wandb_entity: str
     run_name: str
     exp_name: str
+    wandb_project_name: Optional[str] = None
+    wandb_entity: Optional[str] = None
 
 
 @dataclass
 class Config:
-    train_config: TrainConfig = field(default_factory=TrainConfig)
-    model_config: ModelConfig = field(default_factory=ModelConfig)
-    wandb_config: Optional[WandbConfig] = None
+    train: TrainConfig = field(default_factory=TrainConfig)
+    model: ModelConfig = field(default_factory=ModelConfig)
+    wandb: Optional[WandbConfig] = None
 
 
 class WandB:
     def __init__(self, config: Config):
+        # TODO: Do these need to be passed through the launcher?
+        tags = os.environ.get("WANDB_TAGS", "")
+        tags = tags.split(",") if tags != "" else []
+
+        wandb_entity = config.wandb.wandb_entity
+        if wandb_entity is None:
+            wandb_entity = os.environ.get("WANDB_ENTITY")
+
+        wandb_project_name = config.wandb.wandb_project_name
+        if wandb_project_name is None:
+            wandb_project_name = os.environ.get("WANDB_PROJECT")
+
         wandb.init(
-            project=config.wandb_config.wandb_project_name,
-            entity=config.wandb_config.wandb_entity,
-            sync_tensorboard=True,
+            project=wandb_project_name,
+            entity=wandb_entity,
+            # sync_tensorboard=True,
             config=config,
-            name=config.wandb_config.run_name,
+            name=config.wandb.run_name,
             save_code=True,
-            tags=[config.wandb_config.exp_name], # TODO: get_wandb_tags()
+            tags=[config.wandb.exp_name] + tags,
         )
         self.metrics = {}
 
@@ -98,38 +117,36 @@ class WandB:
 
 class Trainer:
     def __init__(self, config: Config):
-        train_config = config.train_config
-        model_config = config.model_config
-
-        self.train_config = train_config
+        self.config = config
+        self.step = 0
 
         self.policy_vllm = LLM(
-            model_config.model_name_or_path, 
+            config.model.model_name_or_path, 
             enforce_eager=True, 
             tensor_parallel_size=1,
             gpu_memory_utilization=0.5 # 0.3
         )
         torch.set_default_device("cuda") # nano-llm resets default device
         self.sampling_params_train = SamplingParams(
-            temperature=train_config.temperature, 
-            max_tokens=self.train_config.max_response_length
+            temperature=config.train.temperature, 
+            max_tokens=config.train.max_response_length
         )
         self.sampling_params_eval  = SamplingParams(
-            temperature=train_config.temperature, 
-            max_tokens=self.train_config.max_response_length
+            temperature=config.train.temperature, 
+            max_tokens=config.train.max_response_length
         )
         
         # @davidh: I would love to use nano-vllm, but it does not have: (1) attention masking or (2) batching
         self.policy: torch.nn.Module = AutoModelForCausalLM.from_pretrained(
-            model_config.model_name_or_path,
-            revision=model_config.model_revision,
+            config.model.model_name_or_path,
+            revision=config.model.model_revision,
             torch_dtype=torch.bfloat16,
             attn_implementation="flash_attention_2",
             use_cache=False,
         )
         self.ref_policy: torch.nn.Module = AutoModelForCausalLM.from_pretrained(
-            model_config.model_name_or_path,
-            revision=model_config.model_revision,
+            config.model.model_name_or_path,
+            revision=config.model.model_revision,
             torch_dtype=torch.bfloat16,
             attn_implementation="flash_attention_2",
             use_cache=False,
@@ -144,25 +161,26 @@ class Trainer:
 
         optim_params = self.policy.parameters()
 
-        self.optimizer = torch.optim.AdamW(optim_params, lr=train_config.lr, fused=train_config.fused_optimizer)
+        self.optimizer = torch.optim.AdamW(optim_params, lr=config.train.lr, fused=config.train.fused_optimizer)
 
         scheduler = get_scheduler(
-            name=train_config.lr_scheduler_type,
+            name=config.train.lr_scheduler_type,
             optimizer=self.optimizer,
-            num_warmup_steps=train_config.warm_up_steps,
-            num_training_steps=train_config.num_scheduler_steps,
+            num_warmup_steps=config.train.warm_up_steps,
+            num_training_steps=config.train.num_scheduler_steps,
         )
 
         ds_config = get_train_ds_config(
             offload=False,
             adam_offload=False,
-            stage=train_config.deepspeed_stage,
+            stage=config.train.deepspeed_stage,
             bf16=True,
         )
-        ds_config["train_micro_batch_size_per_gpu"] = train_config.per_device_train_batch_size
+        ds_config["train_micro_batch_size_per_gpu"] = config.train.per_device_train_batch_size
         ds_config["gradient_accumulation_steps"] = 1
 
-        self.policy, self.optimizer, _, self.scheduler: TrainSchedule = deepspeed.initialize(
+        self.scheduler: TrainSchedule
+        self.policy, self.optimizer, _, self.scheduler = deepspeed.initialize(
             model=self.policy,
             optimizer=self.optimizer,
             config=ds_config,
@@ -174,12 +192,15 @@ class Trainer:
             offload=False,
             # inference model only has stage 3 (sharding) or stage 0 (no sharding)
             # stage 2 is optimizer sharding which doesn't apply to inference
-            stage=train_config.deepspeed_stage if train_config.deepspeed_stage == 3 else 0,
+            stage=config.train.deepspeed_stage if config.train.deepspeed_stage == 3 else 0,
             bf16=True,
         )
-        ds_config["train_micro_batch_size_per_gpu"] = train_config.per_device_train_batch_size
+        ds_config["train_micro_batch_size_per_gpu"] = config.train.per_device_train_batch_size
         ds_config["gradient_accumulation_steps"] = 1
         self.ref_policy, *_ = deepspeed.initialize(model=self.ref_policy, config=ds_config)
+
+        if config.model.checkpoint_save_dir is not None:
+            self.load_checkpoint()
 
         self.ref_policy.eval()
         self.policy.train()
@@ -209,7 +230,45 @@ class Trainer:
         logits /= temperature + 1e-7
         logprob = log_softmax_and_gather(logits, input_ids[:, 1:])
         return logprob
+
+
+    def load_checkpoint(self):
+        checkpoint_state_dir = self.config.model.checkpoint_save_dir
+        calibrate_checkpoint_state_dir(checkpoint_state_dir) # update latest/
+
+        # check if the dir exists
+        if not os.path.exists(checkpoint_state_dir):
+            print(f"Skipping loading checkpoint state from {checkpoint_state_dir} because it does not exist!")
+            return
+        
+        path, states = self.policy.load_checkpoint(
+            checkpoint_state_dir,
+            load_module_strict=True,
+            load_optimizer_states=True,
+            load_lr_scheduler_states=True,
+            load_module_only=False,
+        )
+        if path is None:
+            raise ValueError(f"Failed to load checkpoint from {checkpoint_state_dir}")
+        
+        self.step = states["training_step"]
+        print(f"Loaded checkpoint '{checkpoint_state_dir}' at step {self.step}")
+
     
+    def save_checkpoint(self, train_step):
+        checkpoint_state_dir = self.config.model.checkpoint_save_dir
+
+        step_dir = os.path.join(checkpoint_state_dir, f"step_{train_step}")
+
+        os.makedirs(step_dir, exist_ok=True)
+
+        self.policy.save_checkpoint(checkpoint_state_dir, client_state={"training_step": train_step})
+        
+        calibrate_checkpoint_state_dir(checkpoint_state_dir) # update latest/
+
+        if self.config.model.keep_last_n_checkpoints >= 0:
+            clean_last_n_checkpoints_deepspeed(checkpoint_state_dir, self.config.model.keep_last_n_checkpoints)
+
 
     def broadcast_to_vllm(self):
         policy_unwrapped = self.policy.module if hasattr(self.policy, "module") else self.policy # unwrap DeepSpeed
@@ -247,10 +306,11 @@ class Trainer:
         position_ids,
         advantages,
         response_masks,
-        pad_token_id: int,
-        temperature: float,
-        num_mini_batches: int,
     ):
+        pad_token_id = self.policy_vllm.tokenizer.pad_token_id
+        temperature = self.config.train.temperature
+        num_mini_batches = self.config.train.num_mini_batches
+
         accumulation_steps = math.ceil(len(responses) / num_mini_batches - 0.5)
 
         with torch.no_grad():
@@ -281,7 +341,7 @@ class Trainer:
         # pg_loss_stats = torch.zeros(len(responses))
         # loss_stats = torch.zeros(len(responses))
         # ratio_stats = torch.zeros(len(responses))
-        for epoch_idx in range(self.train_config.num_epochs):
+        for epoch_idx in range(self.config.train.num_epochs):
             for i in range(len(responses)):
                 mb_ref_logprob = ref_logprobs[i]
                 mb_advantages = advantages[i]
@@ -309,7 +369,7 @@ class Trainer:
                 ratio = torch.exp(logprobs_diff)
                 pg_losses = -mb_advantages[:, 1:] * ratio
                 pg_losses2 = -mb_advantages[:, 1:] * torch.clamp(
-                    ratio, 1.0 - self.train_config.clip_lower, 1.0 + self.train_config.clip_higher
+                    ratio, 1.0 - self.config.train.clip_lower, 1.0 + self.config.train.clip_higher
                 )
                 pg_loss_max = torch.max(pg_losses, pg_losses2)
 
@@ -322,8 +382,8 @@ class Trainer:
 
                 # grpo change: directly subtract KL in loss (add)
                 loss = masked_mean(
-                    pg_loss_max + (self.train_config.beta * kl), 
-                    mb_response_masks_bool, self.train_config.masked_mean_axis
+                    pg_loss_max + (self.config.train.beta * kl), 
+                    mb_response_masks_bool, self.config.train.masked_mean_axis
                 )
                 loss = loss / accumulation_steps
                 self.policy.backward(loss)
@@ -334,14 +394,14 @@ class Trainer:
                     # TODO: We use kl 3, but should also track kl 1
 
                     # NOTE: in packed implementation, kl calculation are averages over response tokens
-                    kl_stats[i] = masked_mean(kl, mb_response_masks_bool, self.train_config.masked_mean_axis).float()
-                    # kl_loss_stats[i] = kl_stats[i] * self.train_config.beta
+                    kl_stats[i] = masked_mean(kl, mb_response_masks_bool, self.config.train.masked_mean_axis).float()
+                    # kl_loss_stats[i] = kl_stats[i] * self.config.train.beta
                     # pg_clipfrac_stats[i] = masked_mean(
-                    #     (pg_losses2 > pg_losses).float(), mb_response_masks_bool, self.train_config.masked_mean_axis
+                    #     (pg_losses2 > pg_losses).float(), mb_response_masks_bool, self.config.train.masked_mean_axis
                     # )
-                    # pg_loss_stats[i] = masked_mean(pg_loss_max, mb_response_masks_bool, self.train_config.masked_mean_axis)
+                    # pg_loss_stats[i] = masked_mean(pg_loss_max, mb_response_masks_bool, self.config.train.masked_mean_axis)
                     # loss_stats[i] = loss
-                    # ratio_stats[i] = masked_mean(ratio, mb_response_masks_bool, self.train_config.masked_mean_axis)
+                    # ratio_stats[i] = masked_mean(ratio, mb_response_masks_bool, self.config.train.masked_mean_axis)
 
         # with torch.no_grad():
         #     self.local_metrics.add("objective/kl_avg", kl_stats.mean())
@@ -390,7 +450,7 @@ class Trainer:
         batch_rollouts = self.generate(batch_rollout_requests)
 
         # (prompts * rollouts_per_prompt)
-        batch_responses = []
+        batch_responses: List[Response] = []
         for instance, rollout in zip(batch_rollout_instances, batch_rollouts):
             batch_responses.append(Response(input=instance, output=rollout))
         
@@ -436,7 +496,7 @@ class Trainer:
                 [prompt + rollout for prompt, rollout in zip(rollout_prompts, rollouts)],
                 padding=True,
                 truncation=True,
-                max_length=self.train_config.max_response_length,
+                max_length=self.config.train.max_response_length,
                 return_tensors="pt",
                 padding_side=padding_side
             )
@@ -474,8 +534,8 @@ class Trainer:
         mb_position_ids = []
         mb_advantages = []
         mb_response_masks = []
-        for i in range(0, len(all_rollouts_ids), self.train_config.num_mini_batches):
-            batch_end = min(i + self.train_config.num_mini_batches, len(all_rollouts_ids))
+        for i in range(0, len(all_rollouts_ids), self.config.train.num_mini_batches):
+            batch_end = min(i + self.config.train.num_mini_batches, len(all_rollouts_ids))
             mb_rollouts_ids.append(all_rollouts_ids[i:batch_end])
             mb_attention_masks.append(all_attention_masks[i:batch_end])
             mb_position_ids.append(all_position_ids[i:batch_end])
@@ -498,11 +558,13 @@ class Trainer:
 
     def train_step(self, batch_prompts: List[Instance]):
         # Generate responses
+        print("Generating samples") # TODO: tqdm breaks the beaker log viewer
         batch_responses: List[List[Response]] = self.batch_generate(
             batch_prompts=batch_prompts,
-            rollouts_per_prompt=self.train_config.rollouts_per_prompt
+            rollouts_per_prompt=self.config.train.rollouts_per_prompt
         ) # (prompts, rollouts_per_prompt)
 
+        print("Grading samples")
         batch_scores = []
         batch_advantages = []
         responses: List[Response]
@@ -512,22 +574,24 @@ class Trainer:
             batch_scores += scores
 
             # Compute GRPO
-            scores_per_prompt = scores.reshape(-1, self.train_config.rollouts_per_prompt)
+            scores_per_prompt = scores.reshape(-1, self.config.train.rollouts_per_prompt)
             mean_group_reward = torch.mean(scores_per_prompt, dim=-1)
             std_group_reward  = torch.std(scores_per_prompt, dim=-1)
-            mean_group_reward = mean_group_reward.repeat_interleave(self.train_config.rollouts_per_prompt)
-            std_group_reward  = std_group_reward.repeat_interleave(self.train_config.rollouts_per_prompt)
+            mean_group_reward = mean_group_reward.repeat_interleave(self.config.train.rollouts_per_prompt)
+            std_group_reward  = std_group_reward.repeat_interleave(self.config.train.rollouts_per_prompt)
             advantages = (scores - mean_group_reward) / (std_group_reward + 1e-8) # standard normalization
 
             # In GRPO, if the std of grouped rewards is 0, then there is zero gradient for the batch
             # of args.num_samples_per_prompt_rollout responses, so we need to filter out those batches
-            if std_group_reward == 0:
+            if torch.std(scores_per_prompt, dim=-1) == 0:
                 continue
             
             batch_advantages += [advantages]
 
         self.wandb.log({"train/verifiable_correct_rate": sum(batch_scores) / len(batch_scores)})
-        self.wandb.log_table({"sample_completions": batch_responses[0]}) # log first batch of completions # TODO: Get a table of prompt, response, scores, ground_truth
+        self.wandb.log_table({"sample_completions": [resp.output for resp in batch_responses[0]]}) # log first batch of completions # TODO: Get a table of prompt, response, scores, ground_truth
+
+        print("Updating base model")
 
         # Tokenize + get attention mask
         mb_rollouts_ids, mb_attention_masks, mb_position_ids, \
@@ -543,14 +607,13 @@ class Trainer:
             mb_position_ids,
             mb_advantages,
             mb_response_masks,
-            self.policy_vllm.tokenizer.pad_token_id,
-            self.train_config.temperature,
-            self.train_config.num_mini_batches,
         )
 
         self.broadcast_to_vllm()
 
         self.wandb.step()
+
+        self.save_checkpoint(train_step=self.step)
 
     
     def train(self):
@@ -558,8 +621,8 @@ class Trainer:
         dataset = MinervaMath("algebra") # TODO: Build an actual dataloader (with shuffling, etc.)
         instances: List[Instance] = dataset.requests
         
-        for i in range(0, len(instances), self.train_config.per_device_train_batch_size):
-            batch_end = min(i + self.train_config.per_device_train_batch_size, len(instances))
+        for i in range(0, len(instances), self.config.train.per_device_train_batch_size):
+            batch_end = min(i + self.config.train.per_device_train_batch_size, len(instances))
             prompts = instances[i:batch_end]
 
             self.train_step(prompts)
@@ -574,15 +637,16 @@ def main():
 
     trainer = Trainer(
         config = Config(
-            model_config=ModelConfig(
-                model_name_or_path=model_path
+            model=ModelConfig(
+                model_name_or_path=model_path,
+                checkpoint_save_dir="/tmp/debug_run"
             ),
-            train_config=TrainConfig(),
-            wandb_config=WandbConfig(
-                wandb_project_name="ai2-llm",
-                wandb_entity="simple-trainer",
-                run_name="debug_runs",
-                exp_name="debug"
+            train=TrainConfig(),
+            wandb=WandbConfig(
+                wandb_entity="ai2-llm",
+                wandb_project_name="simple-trainer",
+                exp_name="debug_runs",
+                run_name="debug_run",
             )
         )
     )

@@ -230,12 +230,12 @@ def launch_gantry(config: BeakerConfig):
         yes=True,
 
         # new stuff
-        allow_dirty=True,
-        # dry_run=False,
+        # allow_dirty=True,
+        dry_run=False,
         timeout=99999999, # only way to follow the experiment without canceling
         # install="pip install -e '.[all]'",
-        # Gantry doesn't support uv, so this is the workaround
-        install=UV_INIT + UV_DEPS + "uv pip install -e '.[all]'"
+        
+        install=UV_INIT + UV_DEPS + "uv pip install -e '.[all]'" # Workaournd as Gantry doesn't support uv
     )
 
 

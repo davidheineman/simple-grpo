@@ -21,11 +21,14 @@ python simple_grpo/beaker/launch.py -- python simple_grpo/simple_trainer.py
 # Add the prefix before " -- " to launch on remote
 python simple_grpo/beaker/launch.py \
     --workspace="ai2/davidh" \
-    --cluster="ai2/jupiter-cirrascale-2" \
-    --budget="oe-eval" \
+    --cluster="[ai2/jupiter-cirrascale-2]" \
+    --budget="ai2/oe-eval" \
     -- \
 python simple_grpo/simple_trainer.py \
-    --model_config.model_name_or_path="Qwen/Qwen3-0.6B"
+    --model.model_name_or_path="Qwen/Qwen3-0.6B" \
+    --model.checkpoint_save_dir="/oe-eval-default/ai2-llm/checkpoints/davidh/simple-grpo/" \
+    --wandb.exp_name="first-run" \
+    --wandb.run_name="first-run"
 ```
 
 ### More Info

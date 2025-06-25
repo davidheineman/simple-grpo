@@ -7,3 +7,4 @@ nano-vllm/
 nano-vllm/*
 *.pyc
 *.egg-info
+wandb
