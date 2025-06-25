@@ -1,6 +1,7 @@
+import sys
+
 from omegaconf import OmegaConf
 from rich.pretty import pprint
-import sys
 
 
 def apply_overrides(config):
@@ -20,4 +21,3 @@ def make_config(default_config):
     config = apply_overrides(default_config)
     pprint(config, expand_all=True)
     return config
-

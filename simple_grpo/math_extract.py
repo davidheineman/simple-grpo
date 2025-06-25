@@ -1,13 +1,14 @@
 import logging
 import re
 import signal
-from typing import Optional
 from importlib.metadata import version
+from typing import Optional
 
 eval_logger = logging.getLogger(__name__)
 
 try:
     import sympy
+
     # from math_verify import parse, verify
     from sympy.parsing.latex import parse_latex
 
@@ -98,7 +99,7 @@ REMOVED_EXPRESSIONS = [
 
 
 def is_equiv(gen, correct):
-    if hendrycks_is_equiv(gen, correct): # or minerva_is_equiv(gen, correct):
+    if hendrycks_is_equiv(gen, correct):  # or minerva_is_equiv(gen, correct):
         return True
     return False
 
@@ -113,16 +114,16 @@ def extract_answer(result: str) -> str:
             boxed_answer = None
 
     all_answers = []
-    
+
     # Try Minerva-style extraction
     minerva_answer = normalize_final_answer(get_unnormalized_answer(result))
     if minerva_answer and minerva_answer != "[invalidanswer]":
         all_answers.append(minerva_answer)
-        
+
     # Add boxed answer if found
     if boxed_answer is not None:
         all_answers.append(normalize_final_answer(boxed_answer))
-        
+
     # Try extracting from dollar signs if no answers yet
     if len(all_answers) == 0:
         dollars = [m.start() for m in re.finditer("\\$", result)]
@@ -130,15 +131,16 @@ def extract_answer(result: str) -> str:
             # Add the answer between the second to last and last dollar sign
             answer = normalize_final_answer(result[dollars[-2] + 1 : dollars[-1]])
             all_answers.append(answer)
-            
+
     # Fall back to full result if no other extraction worked
     if len(all_answers) == 0:
         all_answers.append(normalize_final_answer(result))
-        
+
     return all_answers
 
 
 # string normalization from https://github.com/EleutherAI/lm-evaluation-harness/blob/master/lm_eval/tasks/hendrycks_math.py
+
 
 def hendrycks_is_equiv(str1, str2, verbose=False):
     if str1 is None and str2 is None:
@@ -246,9 +248,7 @@ def minerva_is_equiv(x1: str, x2: str) -> bool:
                 else:
                     return False
             except ValueError:
-                eval_logger.debug(
-                    f"Had some trouble simplifying when comparing {x1} and {x2}"
-                )
+                eval_logger.debug(f"Had some trouble simplifying when comparing {x1} and {x2}")
     except TimeoutError:
         eval_logger.debug(f"Timed out comparing {x1} and {x2}")
         return False
@@ -272,9 +272,6 @@ def get_unnormalized_answer(text: str) -> str:
         return match.group(1).strip()
     else:
         return INVALID_ANSWER
-
-
-
 
 
 def normalize_final_answer(final_answer: str) -> str:

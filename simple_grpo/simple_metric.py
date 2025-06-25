@@ -1,12 +1,13 @@
-from simple_grpo.math_extract import extract_answer, is_equiv
-from typing import List, Optional
 from dataclasses import dataclass, field
+from typing import List, Optional
+
+from simple_grpo.math_extract import extract_answer, is_equiv
 
 
 @dataclass
 class Instance:
     request: str
-    gold_completion: Optional[str] = None 
+    gold_completion: Optional[str] = None
     solution: Optional[str] = None
     metadata: dict = field(default_factory=dict)
 
@@ -33,9 +34,7 @@ class MathMetric:
 
         assert correct is not None
 
-        gen_answers: List[str] = extract_answer(
-            generated
-        )  # extracts many possible answers
+        gen_answers: List[str] = extract_answer(generated)  # extracts many possible answers
 
         # "math flex" will allow any extracted answer to be correct
         for gen in gen_answers:

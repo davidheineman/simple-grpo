@@ -1,8 +1,12 @@
 import os
 from typing import Dict, List
-from simple_grpo.beaker.constants import WEKA_CLUSTERS, GCP_CLUSTERS
+
 # from beaker import EnvVar, DataMount, DataSource
-from beaker.types import BeakerEnvVar as EnvVar, BeakerDataMount as DataMount, BeakerDataSource as DataSource
+from beaker.types import BeakerDataMount as DataMount
+from beaker.types import BeakerDataSource as DataSource
+from beaker.types import BeakerEnvVar as EnvVar
+
+from simple_grpo.beaker.constants import GCP_CLUSTERS, WEKA_CLUSTERS
 
 USEFUL_SECRETS = [
     "HF_TOKEN",

@@ -1,7 +1,9 @@
-from requests import Response
-from nanovllm import LLM, SamplingParams
-import huggingface_hub
 from typing import List
+
+import huggingface_hub
+from nanovllm import LLM, SamplingParams
+from requests import Response
+
 from simple_grpo.simple_data import MinervaMath
 from simple_grpo.simple_metric import Instance, MathMetric
 
@@ -36,7 +38,7 @@ def main():
         print(f"\n{subset} Accuracy: {score:.2%}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
 
 # TODO: "stop_sequences": ["Problem:", "\n\n"],

@@ -1,21 +1,24 @@
-from dataclasses import dataclass, field
 import os
 import re
 import secrets
 import string
 import sys
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional
+
 import beaker as bk
-from rich.console import Console
-from rich.text import Text
-from rich.pretty import pprint
-from simple_grpo.beaker.config import make_config
-from simple_grpo.beaker.defaults import get_env_vars, get_mounts
-from simple_grpo.beaker.constants import INTERCONNECT_CLUSTERS, WEKA_CLUSTERS, GCP_CLUSTERS
-import beaker as bk
-from simple_grpo.beaker.config import make_config
-from simple_grpo.beaker.defaults import get_env_vars, get_mounts
 from gantry.api import launch_experiment
+from rich.console import Console
+from rich.pretty import pprint
+from rich.text import Text
+
+from simple_grpo.beaker.config import make_config
+from simple_grpo.beaker.constants import (
+    GCP_CLUSTERS,
+    INTERCONNECT_CLUSTERS,
+    WEKA_CLUSTERS,
+)
+from simple_grpo.beaker.defaults import get_env_vars, get_mounts
 
 console = Console()
 
@@ -158,7 +161,9 @@ def launch_gantry(config: BeakerConfig):
 
     beaker_client = bk.Beaker.from_env(default_workspace=config.workspace)
 
-    beaker_secrets = [secret.name for secret in beaker_client.secret.list(workspace=config.workspace)]
+    beaker_secrets = [
+        secret.name for secret in beaker_client.secret.list(workspace=config.workspace)
+    ]
     whoami = beaker_client.user_name
 
     commands = parse_commands()
@@ -203,18 +208,17 @@ def launch_gantry(config: BeakerConfig):
     # TODO: put this somewhere better
     UV_INIT = "deactivate && pip install uv && uv venv && source .venv/bin/activate && "
     UV_DEPS = "uv pip install torch && sudo apt install -y libmpich-dev && "
-    env_vars += ['LOCAL_RANK=0'] # TODO: deepspeed requires this, but i think its because I didn't initalize the backend correctly
-    
-    # Launch the experiment
-    launch_experiment( # launch_experiment()
-        args=full_commands.split(' '),
+    env_vars += [
+        "LOCAL_RANK=0"
+    ]  # TODO: deepspeed requires this, but i think its because I didn't initalize the backend correctly
 
+    # Launch the experiment
+    launch_experiment(  # launch_experiment()
+        args=full_commands.split(" "),
         workspace=config.workspace,
         clusters=config.cluster,
         budget=config.budget,
-
         # datasets= # TODO: add ability to add this
-
         name=config.task_name,
         description=config.description,
         hostnames=config.hostname,
@@ -228,43 +232,26 @@ def launch_gantry(config: BeakerConfig):
         env_vars=env_vars,
         env_secrets=env_secrets,
         yes=True,
-
         # new stuff
         allow_dirty=True,
         # dry_run=False,
         weka=weka,
-        timeout=(99999999 if config.follow else 0), # only way to follow the experiment without canceling
+        timeout=(
+            99999999 if config.follow else 0
+        ),  # only way to follow the experiment without canceling
         # install="pip install -e '.[all]'",
-        
-        install=UV_INIT + UV_DEPS + "uv pip install -e '.[all]'" # Workaournd as Gantry doesn't support uv
+        install=UV_INIT
+        + UV_DEPS
+        + "uv pip install -e '.[all]'",  # Workaournd as Gantry doesn't support uv
     )
 
 
 def main():
-    config = make_config(BeakerConfig(
-        workspace="ai2/davidh",
-        cluster=WEKA_CLUSTERS,
-        budget="ai2/oe-eval",
-        gpus=1
-    ))
+    config = make_config(
+        BeakerConfig(workspace="ai2/davidh", cluster=WEKA_CLUSTERS, budget="ai2/oe-eval", gpus=1)
+    )
     launch_gantry(config)
 
 
 if __name__ == "__main__":
     main()
-
-
-"""
-Notes on gantry:
-    - Pro: Gantry has support
-    - Con: Gantry installs deps on every job
-
-I think we should do *both*. Mini mason has most of the defaults we need, gantry allows pulling the github container. We just need to write a connector to this function.
-
-Finally, to make things faster, we could write a simple Dockerfile which pre-installs the dependencies and pushes through git actions (although not necessary I think? saves like 2 min of startup time). Then, at startup gantry will just pull the current codebase.
-
-
-Next: How to do code execution? 
-    - Sets of Dockerfiles should be a must -- This is standard in related work.
-    - Could do (1) pre-built dockerfiles (2) launch execution jobs on beaker (so every tool call spins up a container). Could actually be quick to run maybe... (start with this for now. other options are AWS lambdas, or building your own load balancer)
-"""

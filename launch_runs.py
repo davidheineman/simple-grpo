@@ -18,14 +18,14 @@ python simple_grpo/simple_trainer.py \
 """
 
 checkpoint_save_dir = "/oe-eval-default/ai2-llm/checkpoints/davidh/simple-grpo/"
-exp_name="qwen3-0.6b"
-run_name="qwen3-0.6b"
+exp_name = "qwen3-0.6b"
+run_name = "qwen3-0.6b"
 
 for rollouts_per_prompt in [2, 4, 8, 16, 32, 64, 128]:
     cmd = LAUNCH_CMD.format(
-        checkpoint_save_dir=checkpoint_save_dir + f'rollouts={rollouts_per_prompt}/',
-        exp_name=exp_name + f'-rollouts_{rollouts_per_prompt}',
-        run_name=run_name + f'-rollouts_{rollouts_per_prompt}',
+        checkpoint_save_dir=checkpoint_save_dir + f"rollouts={rollouts_per_prompt}/",
+        exp_name=exp_name + f"-rollouts_{rollouts_per_prompt}",
+        run_name=run_name + f"-rollouts_{rollouts_per_prompt}",
         rollouts_per_prompt=rollouts_per_prompt,
         temperature=0.7,
         lr=5e-6,
@@ -35,9 +35,9 @@ for rollouts_per_prompt in [2, 4, 8, 16, 32, 64, 128]:
 
 for temp in [0, 0.2, 0.7, 1, 1.5, 2]:
     cmd = LAUNCH_CMD.format(
-        checkpoint_save_dir=checkpoint_save_dir + f'temp={temp}/',
-        exp_name=exp_name + f'-temp_{temp}',
-        run_name=run_name + f'-temp_{temp}',
+        checkpoint_save_dir=checkpoint_save_dir + f"temp={temp}/",
+        exp_name=exp_name + f"-temp_{temp}",
+        run_name=run_name + f"-temp_{temp}",
         rollouts_per_prompt=rollouts_per_prompt,
         temperature=temp,
         lr=5e-6,
@@ -47,9 +47,9 @@ for temp in [0, 0.2, 0.7, 1, 1.5, 2]:
 
 for lr in [1e-5, 5e-5, 1e-6, 5e-6, 1e-7, 5e-7, 1e-8]:
     cmd = LAUNCH_CMD.format(
-        checkpoint_save_dir=checkpoint_save_dir + f'lr={lr}/',
-        exp_name=exp_name + f'-lr_{lr}',
-        run_name=run_name + f'-lr_{lr}',
+        checkpoint_save_dir=checkpoint_save_dir + f"lr={lr}/",
+        exp_name=exp_name + f"-lr_{lr}",
+        run_name=run_name + f"-lr_{lr}",
         rollouts_per_prompt=rollouts_per_prompt,
         temperature=0.7,
         lr=lr,

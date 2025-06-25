@@ -1,20 +1,33 @@
-import os
-import torch
-from dataclasses import dataclass, field
+import logging
 import math
+import os
+from dataclasses import dataclass, field
 from typing import List, Optional
-from transformers import get_scheduler, AutoModelForCausalLM
-from nanovllm import LLM, SamplingParams
+
+import deepspeed
 import huggingface_hub
+import torch
+from deepspeed.runtime.pipe.schedule import TrainSchedule
+from nanovllm import LLM, SamplingParams
+from transformers import AutoModelForCausalLM, get_scheduler
+
 import wandb
 from simple_grpo.beaker.config import make_config
-from simple_grpo.simple_metric import Response, Instance, MathMetric
-from simple_grpo.simple_data import MinervaMath, HamishMathORZ
-from simple_grpo.grpo_utils import disable_dropout, masked_mean, log_softmax_and_gather, get_train_ds_config, get_eval_ds_config, gradient_checkpointing_enable
-from simple_grpo.utils import calibrate_checkpoint_state_dir, clean_last_n_checkpoints_deepspeed, wandb_login
-import deepspeed
-from deepspeed.runtime.pipe.schedule import TrainSchedule
-import logging
+from simple_grpo.grpo_utils import (
+    disable_dropout,
+    get_eval_ds_config,
+    get_train_ds_config,
+    gradient_checkpointing_enable,
+    log_softmax_and_gather,
+    masked_mean,
+)
+from simple_grpo.simple_data import HamishMathORZ, MinervaMath
+from simple_grpo.simple_metric import Instance, MathMetric, Response
+from simple_grpo.utils import (
+    calibrate_checkpoint_state_dir,
+    clean_last_n_checkpoints_deepspeed,
+    wandb_login,
+)
 
 # Banish the deepspeed logger
 for handler in logging.root.handlers[:]:
@@ -38,7 +51,8 @@ class ModelConfig:
 
 @dataclass
 class TrainConfig:
-    """ https://wandb.ai/ai2-llm/open_instruct_internal/runs/09uuc5hk/overview """
+    """https://wandb.ai/ai2-llm/open_instruct_internal/runs/09uuc5hk/overview"""
+
     # generation
     rollouts_per_prompt: int = 16
     per_device_train_batch_size: int = 16
@@ -48,8 +62,8 @@ class TrainConfig:
     # trainer
     num_epochs: int = 1
     deepspeed_stage: int = 0
-    lr: float = 5e-6 # 5e-7
-    lr_scheduler_type: str = 'constant'
+    lr: float = 5e-6  # 5e-7
+    lr_scheduler_type: str = "constant"
     warm_up_steps: int = 0
     num_scheduler_steps: int = 0
     fused_optimizer: bool = False
@@ -103,12 +117,13 @@ class WandB:
         self.metrics = {}
 
     def log_table(self, table: dict[str, List[str]]):
-        wandb.log({
-            "sample_completions": wandb.Table(
-                columns=list(table.keys()),
-                data=list(zip(*table.values()))
-            )
-        })
+        wandb.log(
+            {
+                "sample_completions": wandb.Table(
+                    columns=list(table.keys()), data=list(zip(*table.values()))
+                )
+            }
+        )
 
     def log(self, metric: dict[str, object]):
         self.metrics.update(metric)
@@ -124,21 +139,19 @@ class Trainer:
         self.step = 0
 
         self.policy_vllm = LLM(
-            config.model.model_name_or_path, 
-            enforce_eager=True, 
+            config.model.model_name_or_path,
+            enforce_eager=True,
             tensor_parallel_size=1,
-            gpu_memory_utilization=0.5 # 0.3
+            gpu_memory_utilization=0.5,  # 0.3
         )
-        torch.set_default_device("cuda") # nano-llm resets default device
+        torch.set_default_device("cuda")  # nano-llm resets default device
         self.sampling_params_train = SamplingParams(
-            temperature=config.train.temperature, 
-            max_tokens=config.train.max_response_length
+            temperature=config.train.temperature, max_tokens=config.train.max_response_length
         )
-        self.sampling_params_eval  = SamplingParams(
-            temperature=config.train.temperature, 
-            max_tokens=config.train.max_response_length
+        self.sampling_params_eval = SamplingParams(
+            temperature=config.train.temperature, max_tokens=config.train.max_response_length
         )
-        
+
         # @davidh: I would love to use nano-vllm, but it does not have: (1) attention masking or (2) batching
         self.policy: torch.nn.Module = AutoModelForCausalLM.from_pretrained(
             config.model.model_name_or_path,
@@ -164,7 +177,9 @@ class Trainer:
 
         optim_params = self.policy.parameters()
 
-        self.optimizer = torch.optim.AdamW(optim_params, lr=config.train.lr, fused=config.train.fused_optimizer)
+        self.optimizer = torch.optim.AdamW(
+            optim_params, lr=config.train.lr, fused=config.train.fused_optimizer
+        )
 
         scheduler = get_scheduler(
             name=config.train.lr_scheduler_type,
@@ -234,16 +249,17 @@ class Trainer:
         logprob = log_softmax_and_gather(logits, input_ids[:, 1:])
         return logprob
 
-
     def load_checkpoint(self):
         checkpoint_state_dir = self.config.model.checkpoint_save_dir
-        calibrate_checkpoint_state_dir(checkpoint_state_dir) # update latest/
+        calibrate_checkpoint_state_dir(checkpoint_state_dir)  # update latest/
 
         # check if the dir exists
         if not os.path.exists(checkpoint_state_dir):
-            print(f"Skipping loading checkpoint state from {checkpoint_state_dir} because it does not exist!")
+            print(
+                f"Skipping loading checkpoint state from {checkpoint_state_dir} because it does not exist!"
+            )
             return
-        
+
         path, states = self.policy.load_checkpoint(
             checkpoint_state_dir,
             load_module_strict=True,
@@ -253,11 +269,10 @@ class Trainer:
         )
         if path is None:
             raise ValueError(f"Failed to load checkpoint from {checkpoint_state_dir}")
-        
+
         self.step = states["training_step"]
         print(f"Loaded checkpoint '{checkpoint_state_dir}' at step {self.step}")
 
-    
     def save_checkpoint(self, train_step):
         checkpoint_state_dir = self.config.model.checkpoint_save_dir
 
@@ -265,21 +280,27 @@ class Trainer:
 
         os.makedirs(step_dir, exist_ok=True)
 
-        self.policy.save_checkpoint(checkpoint_state_dir, client_state={"training_step": train_step})
-        
-        calibrate_checkpoint_state_dir(checkpoint_state_dir) # update latest/
+        self.policy.save_checkpoint(
+            checkpoint_state_dir, client_state={"training_step": train_step}
+        )
+
+        calibrate_checkpoint_state_dir(checkpoint_state_dir)  # update latest/
 
         if self.config.model.keep_last_n_checkpoints >= 0:
-            clean_last_n_checkpoints_deepspeed(checkpoint_state_dir, self.config.model.keep_last_n_checkpoints)
-
+            clean_last_n_checkpoints_deepspeed(
+                checkpoint_state_dir, self.config.model.keep_last_n_checkpoints
+            )
 
     def broadcast_to_vllm(self):
-        policy_unwrapped = self.policy.module if hasattr(self.policy, "module") else self.policy # unwrap DeepSpeed
+        policy_unwrapped = (
+            self.policy.module if hasattr(self.policy, "module") else self.policy
+        )  # unwrap DeepSpeed
 
         # Copy over policy weights to vLLM
         # for name, param in policy_unwrapped.named_parameters():
         #     self.policy_vllm.model_runner.model.get_parameter(name).data.copy_(param.data)
         from nanovllm.utils.loader import copy_weights
+
         copy_weights(policy_unwrapped, self.policy_vllm.model_runner.model)
 
         # Clear vLLM cache
@@ -291,16 +312,18 @@ class Trainer:
                 self.policy_vllm.scheduler.block_manager.deallocate(seq)
         torch.cuda.empty_cache()
 
-
     def update_ref_policy(self):
-        policy_unwrapped = self.policy.module if hasattr(self.policy, "module") else self.policy # unwrap DeepSpeed
-        ref_policy_unwrapped = self.ref_policy.module if hasattr(self.ref_policy, "module") else self.ref_policy # unwrap DeepSpeed
+        policy_unwrapped = (
+            self.policy.module if hasattr(self.policy, "module") else self.policy
+        )  # unwrap DeepSpeed
+        ref_policy_unwrapped = (
+            self.ref_policy.module if hasattr(self.ref_policy, "module") else self.ref_policy
+        )  # unwrap DeepSpeed
 
         # Copy over policy weights to reference policy
         for name, param in policy_unwrapped.named_parameters():
             ref_policy_unwrapped.get_parameter(name).data.copy_(param.data)
         torch.cuda.empty_cache()
-    
 
     def update_model(
         self,
@@ -330,9 +353,7 @@ class Trainer:
                     temperature,
                 )
                 response_mask = response_mask.bool()
-                ref_logprob = torch.masked_fill(
-                    ref_logprob, ~response_mask[:, 1:], INVALID_LOGPROB
-                )
+                ref_logprob = torch.masked_fill(ref_logprob, ~response_mask[:, 1:], INVALID_LOGPROB)
                 ref_logprobs.append(ref_logprob)
                 torch.cuda.empty_cache()
 
@@ -359,7 +380,9 @@ class Trainer:
                     pad_token_id,
                     temperature,
                 )
-                mb_new_logprobs = torch.masked_fill(mb_new_logprobs, ~mb_response_masks_bool, INVALID_LOGPROB)
+                mb_new_logprobs = torch.masked_fill(
+                    mb_new_logprobs, ~mb_response_masks_bool, INVALID_LOGPROB
+                )
 
                 # Cache the old logprobs
                 with torch.no_grad():
@@ -381,12 +404,13 @@ class Trainer:
                 # https://chatgpt.com/share/679d0ed9-8f48-8011-926e-e274b15ae8ae
                 ref_logprobs_diff = (mb_new_logprobs - mb_ref_logprob).clamp(-40.0, 40.0)
                 # numerically stable kl (kl3 in open-instruct)
-                kl = torch.expm1(-ref_logprobs_diff) + ref_logprobs_diff  
+                kl = torch.expm1(-ref_logprobs_diff) + ref_logprobs_diff
 
                 # grpo change: directly subtract KL in loss (add)
                 loss = masked_mean(
-                    pg_loss_max + (self.config.train.beta * kl), 
-                    mb_response_masks_bool, self.config.train.masked_mean_axis
+                    pg_loss_max + (self.config.train.beta * kl),
+                    mb_response_masks_bool,
+                    self.config.train.masked_mean_axis,
                 )
                 loss = loss / accumulation_steps
                 self.policy.backward(loss)
@@ -397,7 +421,9 @@ class Trainer:
                     # TODO: We use kl 3, but should also track kl 1
 
                     # NOTE: in packed implementation, kl calculation are averages over response tokens
-                    kl_stats[i] = masked_mean(kl, mb_response_masks_bool, self.config.train.masked_mean_axis).float()
+                    kl_stats[i] = masked_mean(
+                        kl, mb_response_masks_bool, self.config.train.masked_mean_axis
+                    ).float()
                     # kl_loss_stats[i] = kl_stats[i] * self.config.train.beta
                     # pg_clipfrac_stats[i] = masked_mean(
                     #     (pg_losses2 > pg_losses).float(), mb_response_masks_bool, self.config.train.masked_mean_axis
@@ -417,32 +443,30 @@ class Trainer:
         #     self.local_metrics.add("lr", self.scheduler.get_last_lr()[0])
         #     return self.local_metrics.get_metrics_list()
 
-        self.wandb.log({'train/kl_avg': kl_stats.mean()})
-        self.wandb.log({'lr': self.scheduler.get_last_lr()[0]})
+        self.wandb.log({"train/kl_avg": kl_stats.mean()})
+        self.wandb.log({"lr": self.scheduler.get_last_lr()[0]})
 
         return kl_stats.mean()
-
 
     def generate(self, rollout_prompts: List[str]) -> List[str]:
         # Generate rollouts
         rollouts = self.policy_vllm.generate(
-            prompts=rollout_prompts, 
-            sampling_params=self.sampling_params_train,
-            use_tqdm=False
+            prompts=rollout_prompts, sampling_params=self.sampling_params_train, use_tqdm=False
         )
         rollouts = [out["text"] for out in rollouts]
 
         # # TODO: Generate evaluations
         # evals = self.policy_vllm.generate(
-        #     prompts=eval_prompts, 
+        #     prompts=eval_prompts,
         #     sampling_params=self.sampling_params_eval
         # )
         # evals = [out["text"] for out in evals]
 
         return rollouts
 
-    
-    def batch_generate(self, batch_prompts: List[Instance], rollouts_per_prompt: int) -> List[List[Response]]:
+    def batch_generate(
+        self, batch_prompts: List[Instance], rollouts_per_prompt: int
+    ) -> List[List[Response]]:
         # (prompts * rollouts_per_prompt)
         batch_rollout_instances = []
         batch_rollout_requests = []
@@ -456,12 +480,14 @@ class Trainer:
         batch_responses: List[Response] = []
         for instance, rollout in zip(batch_rollout_instances, batch_rollouts):
             batch_responses.append(Response(input=instance, output=rollout))
-        
+
         # (prompts, rollouts_per_prompt)
-        batch_responses = [batch_responses[i:i+rollouts_per_prompt] for i in range(0, len(batch_responses), rollouts_per_prompt)]
+        batch_responses = [
+            batch_responses[i : i + rollouts_per_prompt]
+            for i in range(0, len(batch_responses), rollouts_per_prompt)
+        ]
 
         return batch_responses
-
 
     def reward(self, responses: List[Response]) -> torch.Tensor:
         metric = MathMetric(responses)
@@ -470,10 +496,12 @@ class Trainer:
         scores = torch.tensor(scores, dtype=torch.float32)
 
         # TODO: format reward
-        
+
         return scores
 
-    def prepare_forward_pass(self, batch_advantages: List[torch.Tensor], batch_responses: List[List[Response]]):
+    def prepare_forward_pass(
+        self, batch_advantages: List[torch.Tensor], batch_responses: List[List[Response]]
+    ):
         #####################
         # Prepare outputs for forward pass (I wrote all this, not sure if it's correct)
         #####################
@@ -486,12 +514,11 @@ class Trainer:
             rollout_prompts = [response.input.request for response in responses]
             rollouts = [response.output for response in responses]
 
-            padding_side = "left" # for Qwen 3
+            padding_side = "left"  # for Qwen 3
 
             # First tokenize just the prompts to get their lengths
             prompt_token_lengths = [
-                len(self.policy_vllm.tokenizer.encode(prompt)) 
-                for prompt in rollout_prompts
+                len(self.policy_vllm.tokenizer.encode(prompt)) for prompt in rollout_prompts
             ]
 
             # Get tokenizer outputs for prompts + rollouts
@@ -501,26 +528,32 @@ class Trainer:
                 truncation=True,
                 max_length=self.config.train.max_response_length,
                 return_tensors="pt",
-                padding_side=padding_side
+                padding_side=padding_side,
             )
 
             rollouts_ids = tokenizer_outputs["input_ids"]
             attention_masks = tokenizer_outputs["attention_mask"]
-            position_ids = torch.arange(rollouts_ids.shape[1], dtype=torch.long)[None, :].repeat(rollouts_ids.shape[0], 1)
+            position_ids = torch.arange(rollouts_ids.shape[1], dtype=torch.long)[None, :].repeat(
+                rollouts_ids.shape[0], 1
+            )
             pad_token_id = self.policy_vllm.tokenizer.pad_token_id
-            
+
             # Create response masks - 1 for response tokens, 0 for prompt tokens
             response_masks = torch.zeros_like(rollouts_ids)
             for i, prompt_len in enumerate(prompt_token_lengths):
                 if padding_side == "left":
                     # For left padding, response starts after prompt from the right
-                    response_start = rollouts_ids.shape[1] - (rollouts_ids[i] != pad_token_id).sum() + prompt_len
+                    response_start = (
+                        rollouts_ids.shape[1] - (rollouts_ids[i] != pad_token_id).sum() + prompt_len
+                    )
                     response_masks[i, response_start:] = 1
                 else:
                     response_masks[i, prompt_len:] = 1
 
             # token-level advantages
-            advantages = advantages.unsqueeze(1).expand(-1, rollouts_ids.shape[1]) # (batch, seq_len)
+            advantages = advantages.unsqueeze(1).expand(
+                -1, rollouts_ids.shape[1]
+            )  # (batch, seq_len)
 
             # Collect tensors for batching
             all_rollouts_ids.extend(rollouts_ids)
@@ -528,7 +561,7 @@ class Trainer:
             all_position_ids.extend(position_ids)
             all_advantages.extend(advantages)
             all_response_masks.extend(response_masks)
-    
+
         #####################
 
         # Split updates into micro-batches
@@ -558,14 +591,12 @@ class Trainer:
             mb_response_masks,
         )
 
-
     def train_step(self, batch_prompts: List[Instance]):
         # Generate responses
-        print("Generating samples") # TODO: tqdm breaks the beaker log viewer
+        print("Generating samples")  # TODO: tqdm breaks the beaker log viewer
         batch_responses: List[List[Response]] = self.batch_generate(
-            batch_prompts=batch_prompts,
-            rollouts_per_prompt=self.config.train.rollouts_per_prompt
-        ) # (prompts, rollouts_per_prompt)
+            batch_prompts=batch_prompts, rollouts_per_prompt=self.config.train.rollouts_per_prompt
+        )  # (prompts, rollouts_per_prompt)
 
         print("Grading samples")
         batch_scores = []
@@ -573,36 +604,48 @@ class Trainer:
         responses: List[Response]
         for responses in batch_responses:
             # Compute rewards
-            scores = self.reward(responses) # (responses,)
+            scores = self.reward(responses)  # (responses,)
             batch_scores += scores
 
             # Compute GRPO
             scores_per_prompt = scores.reshape(-1, self.config.train.rollouts_per_prompt)
             mean_group_reward = torch.mean(scores_per_prompt, dim=-1)
-            std_group_reward  = torch.std(scores_per_prompt, dim=-1)
-            mean_group_reward = mean_group_reward.repeat_interleave(self.config.train.rollouts_per_prompt)
-            std_group_reward  = std_group_reward.repeat_interleave(self.config.train.rollouts_per_prompt)
-            advantages = (scores - mean_group_reward) / (std_group_reward + 1e-8) # standard normalization
+            std_group_reward = torch.std(scores_per_prompt, dim=-1)
+            mean_group_reward = mean_group_reward.repeat_interleave(
+                self.config.train.rollouts_per_prompt
+            )
+            std_group_reward = std_group_reward.repeat_interleave(
+                self.config.train.rollouts_per_prompt
+            )
+            advantages = (scores - mean_group_reward) / (
+                std_group_reward + 1e-8
+            )  # standard normalization
 
             # In GRPO, if the std of grouped rewards is 0, then there is zero gradient for the batch
             # of args.num_samples_per_prompt_rollout responses, so we need to filter out those batches
             if torch.std(scores_per_prompt, dim=-1) == 0:
                 continue
-            
+
             batch_advantages += [advantages]
 
         self.wandb.log({"train/verifiable_correct_rate": sum(batch_scores) / len(batch_scores)})
-        self.wandb.log_table({"sample_completions": [resp.output for resp in batch_responses[0]]}) # log first batch of completions # TODO: Get a table of prompt, response, scores, ground_truth
+        self.wandb.log_table(
+            {"sample_completions": [resp.output for resp in batch_responses[0]]}
+        )  # log first batch of completions # TODO: Get a table of prompt, response, scores, ground_truth
 
         print("Updating base model")
 
         # Tokenize + get attention mask
-        mb_rollouts_ids, mb_attention_masks, mb_position_ids, \
-            mb_advantages, mb_response_masks = self.prepare_forward_pass(
-            batch_advantages = batch_advantages,
-            batch_responses = batch_responses
+        (
+            mb_rollouts_ids,
+            mb_attention_masks,
+            mb_position_ids,
+            mb_advantages,
+            mb_response_masks,
+        ) = self.prepare_forward_pass(
+            batch_advantages=batch_advantages, batch_responses=batch_responses
         )
-        
+
         # Gradient step
         self.update_model(
             mb_rollouts_ids,
@@ -618,12 +661,11 @@ class Trainer:
 
         self.save_checkpoint(train_step=self.step)
 
-    
     def train(self):
         # dataset = HamishMathORZ()
-        dataset = MinervaMath("algebra") # TODO: Build an actual dataloader (with shuffling, etc.)
+        dataset = MinervaMath("algebra")  # TODO: Build an actual dataloader (with shuffling, etc.)
         instances: List[Instance] = dataset.requests
-        
+
         for i in range(0, len(instances), self.config.train.per_device_train_batch_size):
             batch_end = min(i + self.config.train.per_device_train_batch_size, len(instances))
             prompts = instances[i:batch_end]
@@ -632,7 +674,7 @@ class Trainer:
 
 
 def main():
-    torch.cuda.set_device('cuda:0')
+    torch.cuda.set_device("cuda:0")
 
     # TODO: model_name_or_path doesn't load properly. it uses this hf logic
 
@@ -641,26 +683,22 @@ def main():
     model_path = huggingface_hub.snapshot_download(model_name)
 
     config = Config(
-        model=ModelConfig(
-            model_name_or_path=model_path,
-            checkpoint_save_dir="/tmp/debug_run"
-        ),
+        model=ModelConfig(model_name_or_path=model_path, checkpoint_save_dir="/tmp/debug_run"),
         train=TrainConfig(),
         wandb=WandbConfig(
             wandb_entity="ai2-llm",
             wandb_project_name="simple-trainer",
             exp_name="debug_runs",
             run_name="debug_run",
-        )
+        ),
     )
 
     config = make_config(config)
 
-    trainer = Trainer(
-        config
-    )
+    trainer = Trainer(config)
 
     trainer.train()
 
 
-if __name__ == '__main__': main()
+if __name__ == "__main__":
+    main()

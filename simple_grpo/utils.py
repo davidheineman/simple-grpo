@@ -96,6 +96,7 @@ def clean_last_n_checkpoints_deepspeed(output_dir: str, keep_last_n_checkpoints:
 
 def wandb_login() -> Optional[str]:
     import wandb
+
     wandb.login()
     api = wandb.Api()
     current_user = api.viewer

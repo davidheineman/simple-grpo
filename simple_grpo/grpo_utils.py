@@ -1,9 +1,13 @@
 from typing import Optional
+
 import torch
+
 
 def gradient_checkpointing_enable(model: torch.nn.Module) -> None:
     for module in model.modules():
-        if hasattr(module, 'gradient_checkpointing') and isinstance(module.gradient_checkpointing, bool):
+        if hasattr(module, "gradient_checkpointing") and isinstance(
+            module.gradient_checkpointing, bool
+        ):
             module.gradient_checkpointing = True
 
 
@@ -13,13 +17,15 @@ def disable_dropout(model: torch.nn.Module) -> None:
             module.p = 0
 
 
-def masked_mean(values: torch.Tensor, mask: torch.Tensor, axis: Optional[int] = None) -> torch.Tensor:
+def masked_mean(
+    values: torch.Tensor, mask: torch.Tensor, axis: Optional[int] = None
+) -> torch.Tensor:
     """Compute mean of tensor with a masked values."""
     if axis is not None:
         return ((values * mask).sum(axis=axis) / mask.sum(axis=axis)).mean()
     else:
         return (values * mask).sum() / mask.sum()
-    
+
 
 @torch.compile(dynamic=True)
 def log_softmax_and_gather(logits: torch.Tensor, index: torch.Tensor) -> torch.Tensor:
