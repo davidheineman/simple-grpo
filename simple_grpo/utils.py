@@ -1,5 +1,6 @@
 import os
 import shutil
+from typing import Optional
 
 
 def calibrate_checkpoint_state_dir(checkpoint_state_dir: str) -> None:
@@ -91,3 +92,14 @@ def clean_last_n_checkpoints_deepspeed(output_dir: str, keep_last_n_checkpoints:
 
     # Keep special files like zero_to_fp32.py and latest
     print("Remaining files:" + str(os.listdir(output_dir)))
+
+
+def wandb_login() -> Optional[str]:
+    import wandb
+    wandb.login()
+    api = wandb.Api()
+    current_user = api.viewer
+    teams = current_user.teams
+    if "ai2-llm" in teams:
+        return "ai2-llm"
+    return None

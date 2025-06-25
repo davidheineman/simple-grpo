@@ -29,6 +29,12 @@ python simple_grpo/simple_trainer.py \
     --model.checkpoint_save_dir="/oe-eval-default/ai2-llm/checkpoints/davidh/simple-grpo/" \
     --wandb.exp_name="first-run" \
     --wandb.run_name="first-run"
+
+### Try these:
+# per_device_train_batch_size
+# temperature
+# lr
+# lr_scheduler_type
 ```
 
 ### More Info

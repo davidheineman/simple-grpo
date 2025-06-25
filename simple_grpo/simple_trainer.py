@@ -10,7 +10,7 @@ import wandb
 from simple_grpo.simple_metric import Response, Instance, MathMetric
 from simple_grpo.simple_data import MinervaMath, HamishMathORZ
 from simple_grpo.grpo_utils import disable_dropout, masked_mean, log_softmax_and_gather, get_train_ds_config, get_eval_ds_config, gradient_checkpointing_enable
-from simple_grpo.utils import calibrate_checkpoint_state_dir, clean_last_n_checkpoints_deepspeed
+from simple_grpo.utils import calibrate_checkpoint_state_dir, clean_last_n_checkpoints_deepspeed, wandb_login
 import deepspeed
 from deepspeed.runtime.pipe.schedule import TrainSchedule
 import logging
@@ -87,6 +87,8 @@ class WandB:
         wandb_project_name = config.wandb.wandb_project_name
         if wandb_project_name is None:
             wandb_project_name = os.environ.get("WANDB_PROJECT")
+
+        wandb_login()
 
         wandb.init(
             project=wandb_project_name,
