@@ -28,8 +28,8 @@ python simple_grpo/beaker/launch.py \
 python simple_grpo/simple_trainer.py \
     --model.model_name_or_path="Qwen/Qwen3-0.6B" \
     --model.checkpoint_save_dir="/oe-eval-default/ai2-llm/checkpoints/davidh/simple-grpo/" \
-    --wandb.exp_name="first-run" \
-    --wandb.run_name="first-run"
+    --wandb.exp_name="in-loop-run" \
+    --wandb.run_name="in-loop-run"
 ```
 
 ### More Info
@@ -47,13 +47,13 @@ Minimum TODOs:
     [X] Beaker launcher (gantry, not mason) -- https://github.com/allenai/beaker-gantry
     [X] Basic wandb support
     [X] Saving / loading (pre-emptible job)
-    [ ] In-loop Minerva
+    [X] In-loop Minerva
     [ ] Multi-GPU support (with Ray)
 
 Minimum Bugs:
-    [ ] Fix stop sequences
-    [ ] vLLM breaks when multiple jobs are on the same node -- https://github.com/GeeeekExplorer/nano-vllm/blob/main/nanovllm/engine/model_runner.py#L26
-    [ ] Loading logic broken (model_name_or_path)
+    [X] vLLM breaks when multiple jobs are on the same node -- https://github.com/GeeeekExplorer/nano-vllm/blob/main/nanovllm/engine/model_runner.py#L26
+    [X] Fix stop sequences (turns out not broken)
+    [X] Loading logic broken (model_name_or_path)
 
 Nice to haves:
     [ ] Pull the Gantry install and default container and push a basic container w/ the install command

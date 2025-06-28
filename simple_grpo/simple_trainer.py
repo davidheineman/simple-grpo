@@ -54,8 +54,8 @@ class TrainConfig:
     """https://wandb.ai/ai2-llm/open_instruct_internal/runs/09uuc5hk/overview"""
 
     # generation
-    rollouts_per_prompt: int = 16
-    per_device_train_batch_size: int = 16
+    per_device_train_batch_size: int = 16 # questions per train_step
+    rollouts_per_prompt: int = 16 # outputs per question
     temperature: float = 0.7
     max_response_length: int = 2048
 
@@ -70,7 +70,7 @@ class TrainConfig:
     clip_lower: float = 0.2
     clip_higher: float = 0.2
     beta: float = 0
-    num_mini_batches: int = 2
+    num_mini_batches: int = 2 # batch size for forward_pass (after GRPO)
     masked_mean_axis: Optional[int] = None
 
 
@@ -176,8 +176,6 @@ class Trainer:
             use_cache=False,
         )
 
-        # TODO: Load existing checkpoint if exists
-
         disable_dropout(self.policy)
         disable_dropout(self.ref_policy)
 
@@ -227,6 +225,7 @@ class Trainer:
 
         if config.model.checkpoint_save_dir is not None:
             self.load_checkpoint()
+            self.broadcast_to_vllm()
 
         self.ref_policy.eval()
         self.policy.train()
@@ -456,41 +455,39 @@ class Trainer:
 
         return kl_stats.mean()
 
-    def generate(self, rollout_prompts: List[str]) -> List[str]:
+    def generate(self, instances: List[Instance], params: SamplingParams) -> List[str]:
+        requests: List[str] = [instance.request for instance in instances]
+
         # Generate rollouts
         rollouts = self.policy_vllm.generate(
-            prompts=rollout_prompts, sampling_params=self.sampling_params_train, use_tqdm=False
+            prompts=requests, 
+            sampling_params=params, 
+            use_tqdm=False
         )
         rollouts = [out["text"] for out in rollouts]
 
-        # # TODO: Generate evaluations
-        # evals = self.policy_vllm.generate(
-        #     prompts=eval_prompts,
-        #     sampling_params=self.sampling_params_eval
-        # )
-        # evals = [out["text"] for out in evals]
+        # Combine rollouts into responses
+        responses: List[Response] = []
+        for instance, rollout in zip(instances, rollouts):
+            responses.append(Response(input=instance, output=rollout))
 
-        return rollouts
+        return responses
 
     def batch_generate(
         self, batch_prompts: List[Instance], rollouts_per_prompt: int
     ) -> List[List[Response]]:
         # (prompts * rollouts_per_prompt)
-        batch_rollout_instances = []
-        batch_rollout_requests = []
-        for prompt in batch_prompts:
-            batch_rollout_instances.extend([prompt] * rollouts_per_prompt)
-            batch_rollout_requests.extend([prompt.request] * rollouts_per_prompt)
+        batch_rollout_instances: List[Response] = [
+            prompt for prompt in batch_prompts for _ in range(rollouts_per_prompt)
+        ]
 
-        batch_rollouts = self.generate(batch_rollout_requests)
-
-        # (prompts * rollouts_per_prompt)
-        batch_responses: List[Response] = []
-        for instance, rollout in zip(batch_rollout_instances, batch_rollouts):
-            batch_responses.append(Response(input=instance, output=rollout))
+        batch_responses: List[Response] = self.generate(
+            batch_rollout_instances, 
+            params=self.sampling_params_train
+        )
 
         # (prompts, rollouts_per_prompt)
-        batch_responses = [
+        batch_responses: List[List[Response]] = [
             batch_responses[i : i + rollouts_per_prompt]
             for i in range(0, len(batch_responses), rollouts_per_prompt)
         ]
@@ -510,9 +507,7 @@ class Trainer:
     def prepare_forward_pass(
         self, batch_advantages: List[torch.Tensor], batch_responses: List[List[Response]]
     ):
-        #####################
-        # Prepare outputs for forward pass (I wrote all this, not sure if it's correct)
-        #####################
+        """ Prepare outputs for forward pass (I wrote all this, not sure if it's correct) """
         all_rollouts_ids = []
         all_attention_masks = []
         all_position_ids = []
@@ -665,9 +660,12 @@ class Trainer:
 
         self.broadcast_to_vllm()
 
+        self.eval()
+
         self.wandb.step()
 
         self.save_checkpoint(train_step=self.step)
+
 
     def train(self):
         # dataset = HamishMathORZ()
@@ -679,6 +677,22 @@ class Trainer:
             prompts = instances[i:batch_end]
 
             self.train_step(prompts)
+
+
+    def eval(self):
+        print("Evaluating")
+
+        dataset = MinervaMath("algebra")
+        instances: List[Instance] = dataset.requests
+        responses: List[Response] = self.generate(
+            instances, 
+            params=self.sampling_params_eval
+        )
+        metric = MathMetric(responses)
+        metric.grade_responses()
+        score = metric.compute_metric()
+
+        self.wandb.log({"eval/minerva_math_algebra": score})
 
 
 def main():

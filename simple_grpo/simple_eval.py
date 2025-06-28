@@ -2,10 +2,9 @@ from typing import List
 
 import huggingface_hub
 from nanovllm import LLM, SamplingParams
-from requests import Response
 
 from simple_grpo.simple_data import MinervaMath
-from simple_grpo.simple_metric import Instance, MathMetric
+from simple_grpo.simple_metric import Instance, MathMetric, Response
 
 
 def main():

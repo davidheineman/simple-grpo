@@ -228,6 +228,7 @@ def launch_gantry(config: BeakerConfig):
         yes=True,
         # new stuff
         allow_dirty=True,
+        priority=config.priority,
         # dry_run=False,
         weka=weka,
         timeout=(

@@ -121,15 +121,15 @@ def get_env_vars(
             [
                 EnvVar(
                     name="HF_HOME",
-                    value="/filestore/.cache/huggingface",
+                    value="/oe-eval-default/davidh/.cache/huggingface/",
                 ),
                 EnvVar(
                     name="HF_DATASETS_CACHE",
-                    value="/filestore/.cache/huggingface",
+                    value="/oe-eval-default/davidh/.cache/huggingface/datasets/",
                 ),
                 EnvVar(
                     name="HF_HUB_CACHE",
-                    value="/filestore/.cache/hub",
+                    value="/oe-eval-default/davidh/.cache/huggingface/hub/",
                 ),
                 EnvVar(
                     name="HF_HUB_ENABLE_HF_TRANSFER",
@@ -188,10 +188,10 @@ def get_env_vars(
                         name="NCCL_FASTRAK_USE_SNAP",
                         value="1",
                     ),
-                    EnvVar(
-                        name="CUDA_VISIBLE_DEVICES",
-                        value="0,1,2,3,4,5,6,7",
-                    ),
+                    # EnvVar(
+                    #     name="CUDA_VISIBLE_DEVICES",
+                    #     value="0,1,2,3,4,5,6,7",
+                    # ),
                     EnvVar(
                         name="NCCL_NET_GDR_LEVEL",
                         value="PIX",
