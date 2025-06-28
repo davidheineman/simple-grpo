@@ -2,6 +2,7 @@ import logging
 import math
 import os
 from dataclasses import dataclass, field
+import random
 from typing import List, Optional
 
 import deepspeed
@@ -137,11 +138,19 @@ class Trainer:
         self.config = config
         self.step = 0
 
+        # for nano-vllm, it cannot pull from hf, so pull hf models
+        # davidh: TODO: make the hf loader more elegant
+        if not config.model.model_name_or_path.startswith('/'):
+            vllm_model_path = huggingface_hub.snapshot_download(config.model.model_name_or_path)
+        else:
+            vllm_model_path = config.model.model_name_or_path
+
         self.policy_vllm = LLM(
-            config.model.model_name_or_path,
+            vllm_model_path,
             enforce_eager=True,
             tensor_parallel_size=1,
             gpu_memory_utilization=0.5,  # 0.3
+            dist_port=random.randint(29500, 29600) # davidh: TODO: To get real multi-rank working, we need to inherit a port from the beaker job
         )
         torch.set_default_device("cuda")  # nano-llm resets default device
         self.sampling_params_train = SamplingParams(
@@ -675,14 +684,11 @@ class Trainer:
 def main():
     torch.cuda.set_device("cuda:0")
 
-    # TODO: model_name_or_path doesn't load properly. it uses this hf logic
-
     model_name = "Qwen/Qwen3-0.6B"
     # model_name = "Qwen/Qwen3-32B"
-    model_path = huggingface_hub.snapshot_download(model_name)
 
     config = Config(
-        model=ModelConfig(model_name_or_path=model_path, checkpoint_save_dir="/tmp/debug_run"),
+        model=ModelConfig(model_name_or_path=model_name, checkpoint_save_dir="/tmp/debug_run"),
         train=TrainConfig(),
         wandb=WandbConfig(
             wandb_entity="ai2-llm",
