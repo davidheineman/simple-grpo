@@ -62,7 +62,7 @@ class TrainConfig:
     # trainer
     num_epochs: int = 1
     deepspeed_stage: int = 0
-    lr: float = 5e-6  # 5e-7
+    lr: float = 5e-7
     lr_scheduler_type: str = "constant"
     warm_up_steps: int = 0
     num_scheduler_steps: int = 0

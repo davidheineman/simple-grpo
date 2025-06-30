@@ -43,17 +43,7 @@ With 8xA100, assuming 6-7K TPS:
     -- 1 epoch on HamishMATH would take 38 hours (56K x 16 samples)
 
 Minimum TODOs:
-    [X] Correctness -- Token advantages correct? (yes, they are)
-    [X] Beaker launcher (gantry, not mason) -- https://github.com/allenai/beaker-gantry
-    [X] Basic wandb support
-    [X] Saving / loading (pre-emptible job)
-    [X] In-loop Minerva
     [ ] Multi-GPU support (with Ray)
-
-Minimum Bugs:
-    [X] vLLM breaks when multiple jobs are on the same node -- https://github.com/GeeeekExplorer/nano-vllm/blob/main/nanovllm/engine/model_runner.py#L26
-    [X] Fix stop sequences (turns out not broken)
-    [X] Loading logic broken (model_name_or_path)
 
 Nice to haves:
     [ ] Pull the Gantry install and default container and push a basic container w/ the install command
