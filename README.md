@@ -1,3 +1,5 @@
+A simple implementation of GRPO. See the core training loop in [`simple_trainer.py`](./simple_grpo/simple_trainer.py#L597-L667).
+
 ### Setup
 
 ```sh
@@ -7,18 +9,17 @@ pip install -e '.[all]'
 ### Quick Start
 
 ```sh
+# Run the trainer
 python simple_grpo/simple_trainer.py
 
+# Evaluate the resulting model
 python simple_grpo/simple_eval.py
 ```
 
 ### Launching on Beaker
 
 ```sh
-# (current working command)
-python simple_grpo/beaker/launch.py -- python simple_grpo/simple_trainer.py
-
-# Add the prefix before " -- " to launch on remote
+# The code after "--" will launch on remote
 python simple_grpo/beaker/launch.py \
     --workspace="ai2/davidh" \
     --cluster="[ai2/jupiter-cirrascale-2]" \
@@ -30,23 +31,6 @@ python simple_grpo/simple_trainer.py \
     --model.checkpoint_save_dir="/oe-eval-default/ai2-llm/checkpoints/davidh/simple-grpo/" \
     --wandb.exp_name="in-loop-run" \
     --wandb.run_name="in-loop-run"
-```
-
-### More Info
-
-```sh
-How long would a training run take on Qwen 3 0.6B?
-
-With 8xA100, assuming 6-7K TPS: 
-    -- 1 16-rollout instance per sec (or 1 forward pass every 0.625 sec) 
-    -- Minerva pass@1 would take 31.25 sec
-    -- 1 epoch on HamishMATH would take 38 hours (56K x 16 samples)
-
-Minimum TODOs:
-    [ ] Multi-GPU support (with Ray)
-
-Nice to haves:
-    [ ] Pull the Gantry install and default container and push a basic container w/ the install command
 ```
 
 ### Local install
